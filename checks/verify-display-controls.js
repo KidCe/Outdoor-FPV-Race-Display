@@ -13,8 +13,9 @@ const webUi = readProjectFile('web/fpv-race-wled-80x80.html');
 for (const match of webUi.matchAll(/<script>([\s\S]*?)<\/script>/g)) new vm.Script(match[1]);
 
 const checks = [
-  [firmware.includes('segment.fill(_scene.background)'), 'exclusive mode must clear the complete WLED segment'],
-  [firmware.includes('segment.fadeToBlackBy'), 'overlay mode must dim the complete WLED segment'],
+  [firmware.includes('strip.fill(_scene.background)'), 'exclusive mode must clear the final WLED framebuffer'],
+  [firmware.includes('strip.setPixelColor(index, color_fade(strip.getPixelColorNoMap(index), retained, true))'), 'overlay mode must dim the final WLED framebuffer'],
+  [firmware.includes('frame.begin') && firmware.includes('frame.chunk') && firmware.includes('BusManager::getPixelColor(strip.getMappedPixelIndex(index))'), 'firmware must expose mapped HUB75 frame readback'],
   [firmware.includes('command.containsKey("brightness")'), 'state protocol must accept brightness'],
   [firmware.includes('command.containsKey("backgroundEffect")'), 'state protocol must accept background effect visibility'],
   [rendererHeader.includes('bool drawBackground'), 'renderer must allow the module to own background composition'],
@@ -22,6 +23,7 @@ const checks = [
   [webUi.includes('id="backgroundEffect"') && webUi.includes('value="0"'), 'WebUI background effect must default to black'],
   [webUi.includes('brightness:+$(\'displayBrightness\').value'), 'live state must transmit brightness'],
   [webUi.includes('backgroundEffect:+$(\'backgroundEffect\').value'), 'live state must transmit background effect visibility'],
+  [webUi.includes('id="readFrame">Read displayed pixels</button>') && webUi.includes("sendCommand('frame.chunk'") && webUi.includes('checksumRgb(pixels)'), 'WebUI must reconstruct and verify displayed RGB pixels'],
   [webUi.includes("sendCommand('activate',{on:false}"), 'disabling live output must release the overlay'],
   [webUi.includes('id="advancedMode" type="checkbox"> Special mode') && webUi.includes('class="pilot-effect advanced-only"') && !webUi.includes('> Advanced mode</label>'), 'special mode must discreetly reveal pilot effect controls'],
   [webUi.indexOf('class="special-mode-footer"') > webUi.indexOf('<strong>Generated text</strong>'), 'special mode control must be placed at the bottom of the page'],

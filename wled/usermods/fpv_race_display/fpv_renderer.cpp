@@ -75,29 +75,29 @@ void Renderer::motionOffset(const Node& node, uint32_t now, int16_t& offsetX, in
   else if (node.motion == Motion::Down) offsetY = distance;
 }
 
-void Renderer::pixel(Segment& segment, int16_t x, int16_t y, uint32_t color) const {
+void Renderer::pixel(WS2812FX& target, int16_t x, int16_t y, uint32_t color) const {
   if (!_scene || x < 0 || y < 0 || x >= static_cast<int16_t>(_scene->width) || y >= static_cast<int16_t>(_scene->height)) return;
-  segment.setPixelColorXY(x, y, color);
+  target.setPixelColorXY(x, y, color);
 }
 
-void Renderer::rect(Segment& segment, int16_t x, int16_t y, int16_t width, int16_t height, uint32_t color, bool filled, uint8_t thickness) const {
+void Renderer::rect(WS2812FX& target, int16_t x, int16_t y, int16_t width, int16_t height, uint32_t color, bool filled, uint8_t thickness) const {
   if (width <= 0 || height <= 0) return;
   if (filled) {
-    for (int16_t py = y; py < y + height; py++) for (int16_t px = x; px < x + width; px++) pixel(segment, px, py, color);
+    for (int16_t py = y; py < y + height; py++) for (int16_t px = x; px < x + width; px++) pixel(target, px, py, color);
     return;
   }
   for (uint8_t t = 0; t < thickness; t++) {
-    line(segment, x + t, y + t, x + width - 1 - t, y + t, color, 1);
-    line(segment, x + t, y + height - 1 - t, x + width - 1 - t, y + height - 1 - t, color, 1);
-    line(segment, x + t, y + t, x + t, y + height - 1 - t, color, 1);
-    line(segment, x + width - 1 - t, y + t, x + width - 1 - t, y + height - 1 - t, color, 1);
+    line(target, x + t, y + t, x + width - 1 - t, y + t, color, 1);
+    line(target, x + t, y + height - 1 - t, x + width - 1 - t, y + height - 1 - t, color, 1);
+    line(target, x + t, y + t, x + t, y + height - 1 - t, color, 1);
+    line(target, x + width - 1 - t, y + t, x + width - 1 - t, y + height - 1 - t, color, 1);
   }
 }
 
-void Renderer::line(Segment& segment, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint32_t color, uint8_t thickness) const {
+void Renderer::line(WS2812FX& target, int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint32_t color, uint8_t thickness) const {
   int16_t dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1, dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1, error = dx + dy;
   while (true) {
-    for (uint8_t tx = 0; tx < thickness; tx++) for (uint8_t ty = 0; ty < thickness; ty++) pixel(segment, x0 + tx, y0 + ty, color);
+    for (uint8_t tx = 0; tx < thickness; tx++) for (uint8_t ty = 0; ty < thickness; ty++) pixel(target, x0 + tx, y0 + ty, color);
     if (x0 == x1 && y0 == y1) break;
     const int16_t doubled = 2 * error;
     if (doubled >= dy) { error += dy; x0 += sx; }
@@ -105,7 +105,7 @@ void Renderer::line(Segment& segment, int16_t x0, int16_t y0, int16_t x1, int16_
   }
 }
 
-void Renderer::text(Segment& segment, const Node& node, const Value* value, uint32_t now, int16_t offsetX, int16_t offsetY) const {
+void Renderer::text(WS2812FX& target, const Node& node, const Value* value, uint32_t now, int16_t offsetX, int16_t offsetY) const {
   const char* content = value ? value->text : node.text;
   const size_t length = strlen(content);
   if (!length) return;
@@ -127,7 +127,7 @@ void Renderer::text(Segment& segment, const Node& node, const Value* value, uint
         for (uint8_t sy = 0; sy < node.scale; sy++) for (uint8_t sx = 0; sx < node.scale; sx++) {
           const int16_t px = originX + index * advance + gx * node.scale + sx;
           const int16_t py = clipY + gy * node.scale + sy;
-          if (px >= clipX && px < clipX + node.width && (!node.height || py < clipY + node.height)) pixel(segment, px, py, nodeColor(node, value, px, py, now));
+          if (px >= clipX && px < clipX + node.width && (!node.height || py < clipY + node.height)) pixel(target, px, py, nodeColor(node, value, px, py, now));
         }
       }
     }
@@ -144,9 +144,9 @@ bool Renderer::isAnimated() const {
   return false;
 }
 
-void Renderer::render(Segment& segment, uint32_t now, bool drawBackground) {
+void Renderer::render(WS2812FX& target, uint32_t now, bool drawBackground) {
   if (!_scene) return;
-  if (drawBackground) rect(segment, 0, 0, _scene->width, _scene->height, _scene->background, true, 1);
+  if (drawBackground) rect(target, 0, 0, _scene->width, _scene->height, _scene->background, true, 1);
   for (uint8_t i = 0; i < _scene->nodeCount; i++) {
     const Node& node = _scene->nodes[i];
     const Value* value = findValue(node.binding);
@@ -154,11 +154,11 @@ void Renderer::render(Segment& segment, uint32_t now, bool drawBackground) {
     int16_t offsetX = 0, offsetY = 0;
     motionOffset(node, now, offsetX, offsetY);
     switch (node.type) {
-      case NodeType::Text: text(segment, node, value, now, offsetX, offsetY); break;
-      case NodeType::Rect: rect(segment, node.x + offsetX, node.y + offsetY, node.width, node.height, color, node.filled, node.thickness); break;
-      case NodeType::Line: line(segment, node.x + offsetX, node.y + offsetY, node.x2 + offsetX, node.y2 + offsetY, color, node.thickness); break;
+      case NodeType::Text: text(target, node, value, now, offsetX, offsetY); break;
+      case NodeType::Rect: rect(target, node.x + offsetX, node.y + offsetY, node.width, node.height, color, node.filled, node.thickness); break;
+      case NodeType::Line: line(target, node.x + offsetX, node.y + offsetY, node.x2 + offsetX, node.y2 + offsetY, color, node.thickness); break;
       case NodeType::Polyline:
-        for (uint8_t point = 1; point < node.pointCount; point++) line(segment, node.points[point - 1].x + offsetX, node.points[point - 1].y + offsetY, node.points[point].x + offsetX, node.points[point].y + offsetY, color, node.thickness);
+        for (uint8_t point = 1; point < node.pointCount; point++) line(target, node.points[point - 1].x + offsetX, node.points[point - 1].y + offsetY, node.points[point].x + offsetX, node.points[point].y + offsetY, color, node.thickness);
         break;
     }
   }

@@ -11,6 +11,7 @@ An 80×80 FPV race status display for WLED HUB75 builds. The browser UI edits th
 - Active output defaults to a fully black background and 50% display brightness. The browser remembers both controls; an optional 1-25% background-effect level retains a deliberately dim WLED animation.
 - Layouts are portable JSON schema files. Install a schema once, then select it by ID and hash.
 - The renderer uses the WLED matrix buffer and does not allocate an additional 80×80 RGB framebuffer.
+- The final mapped HUB75 output can be read back pixel by pixel over USB or WebSocket. The WebUI reconstructs the captured frame, verifies its checksum, and compares it with the browser preview.
 - The same usermod can be compiled for the classic ESP32 HUB75 wiring and the Waveshare Matrix board target.
 - Rainbow and subtle sparkle effects are available behind the WebUI's discreet, persistent **Special mode** switch, keeping the default race-day interface focused.
 - Animated header arrows communicate race state at a glance: inward arrows for the current heat, upward arrows for a staged heat, right arrows for next up, and double right arrows for the following heat.
@@ -35,6 +36,8 @@ pio run -e waveshare_p4_80x40_fpv
 ```
 
 Open [web/fpv-race-wled-80x80.html](web/fpv-race-wled-80x80.html) through a local HTTP server in Chrome or Edge. Connect WLED, click **Install current schema** once, then enable **Live output**. The exported schema can also be uploaded under WLED Usermods settings → **Manage layout schemas**.
+
+Use **Read displayed pixels** to freeze and inspect the frame currently held by the HUB75 output. For an unattended hardware check, run `python scripts/verify-frame-readback.py --transport websocket` or replace `websocket` with `usb --port COM7`.
 
 The public demo is deployed automatically from the same WebUI file through GitHub Pages. Its preview, layout editor, schema export, and advanced effects work without hardware. USB access requires a compatible Chromium browser; connecting to a local WLED WebSocket from the HTTPS-hosted demo can be restricted by browser mixed-content rules, so the local HTTP version remains the reliable wireless-control option.
 

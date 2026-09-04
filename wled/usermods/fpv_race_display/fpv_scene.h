@@ -13,6 +13,8 @@ static constexpr size_t ID_SIZE = 25;
 static constexpr size_t HASH_SIZE = 17;
 static constexpr size_t KEY_SIZE = 17;
 static constexpr size_t TEXT_SIZE = 41;
+static constexpr uint8_t FRAME_CHUNK_PIXELS = 48;
+static constexpr size_t FRAME_DATA_SIZE = FRAME_CHUNK_PIXELS * 4 + 1;
 
 enum class NodeType : uint8_t { Text, Rect, Line, Polyline };
 enum class Align : uint8_t { Left, Center, Right };
@@ -82,6 +84,21 @@ struct CommandReply {
   bool ok = false;
   char code[25] = {};
   char message[81] = {};
+  bool hasFrame = false;
+  bool frameReady = false;
+  bool frameExact = true;
+  uint32_t capture = 0;
+  uint32_t frame = 0;
+  uint32_t renderedAt = 0;
+  uint32_t checksum = 0;
+  uint16_t width = 0;
+  uint16_t height = 0;
+  uint16_t total = 0;
+  uint16_t lit = 0;
+  uint16_t offset = 0;
+  uint8_t count = 0;
+  char source[9] = {};
+  char data[FRAME_DATA_SIZE] = {};
 };
 
 inline void copyText(char* destination, size_t capacity, const char* source) {

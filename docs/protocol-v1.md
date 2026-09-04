@@ -39,6 +39,17 @@ Protocol v1 supports `text`, `rect`, `line`, and `polyline` nodes. A node may ha
 
 Any node can optionally animate without controller traffic by declaring `motion` as `left`, `right`, `up`, or `down`. `motionDistance` is constrained to 0–4 pixels and defaults to 1; `motionPeriod` is constrained to 200–5000 ms and defaults to 900. The ESP32 applies a subtle triangular movement and renders it at the schema's configured frame rate. Omitting `motion` keeps the node static.
 
+## Displayed-frame readback
+
+Protocol v1 also supports a frozen, chunked RGB readback over USB serial and `/fpv/ws`. This reads the final WLED framebuffer or the mapped HUB75 output without allocating a second 80×80 buffer on the ESP32.
+
+1. Send `frame.begin` with `source` set to `output` (mapped HUB75 output in screen coordinates) or `logical` (WLED framebuffer).
+2. Poll `frame.status` with the returned `capture` ID until `ready` is true.
+3. Request `frame.chunk` with `capture`, `offset`, and a `count` of at most 48 pixels. `data` is base64 RGB888; every pixel contributes exactly four base64 characters.
+4. Continue until `total` pixels have been read, verify the FNV-1a `checksum`, then send `frame.end`.
+
+The capture automatically releases after 30 seconds if a client disconnects. `exact: false` means an unbuffered HUB75 driver can report only black versus non-black occupancy.
+
 `state` also accepts two display controls:
 
 - `brightness`: global display brightness from 0 to 100 percent.
