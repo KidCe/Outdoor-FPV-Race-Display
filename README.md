@@ -13,7 +13,7 @@ An 80×80 FPV race status display for WLED HUB75 builds. The browser UI edits th
 - The renderer uses the WLED matrix buffer and does not allocate an additional 80×80 RGB framebuffer.
 - The same usermod can be compiled for the classic ESP32 HUB75 wiring and the Waveshare Matrix board target.
 - Rainbow and subtle sparkle effects are available behind the WebUI's discreet, persistent **Special mode** switch, keeping the default race-day interface focused.
-- Animated header markers communicate race state at a glance: inward chevrons for the current heat, upward chevrons for a staged heat, right chevrons for next up, and double right chevrons for the following heat.
+- Animated header arrows communicate race state at a glance: inward arrows for the current heat, upward arrows for a staged heat, right arrows for next up, and double right arrows for the following heat.
 
 ## Project layout
 
