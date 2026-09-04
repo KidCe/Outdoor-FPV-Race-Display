@@ -23,6 +23,8 @@ const checks = [
   [webUi.includes("sendCommand('activate',{on:false}"), 'disabling live output must release the overlay'],
   [webUi.includes('id="advancedMode"') && webUi.includes('class="pilot-effect advanced-only"'), 'advanced mode must hide pilot effect controls by default'],
   [webUi.includes("$('advancedMode').checked?$(`pe${index}`).value:'none'"), 'advanced effects must be inactive when advanced mode is off'],
+  [webUi.includes("if(count===2)for(let chevron=0;chevron<count;chevron++)") && webUi.includes("drawChevron(right-radius*t-chevron*(radius+2)*t,d)"), 'double chevron preview must draw on both sides'],
+  [webUi.includes("chevron(`chevR${i}`,b.right-g.radius-i*(g.radius+2)*g.thickness,pointsRight)"), 'double chevron schema must include the right side'],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, message]) => message);
@@ -31,4 +33,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('FPV display background and brightness controls verified.');
+console.log('FPV display controls verified.');
