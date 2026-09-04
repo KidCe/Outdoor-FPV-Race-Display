@@ -25,6 +25,8 @@ const checks = [
   [webUi.includes("$('advancedMode').checked?$(`pe${index}`).value:'none'"), 'advanced effects must be inactive when advanced mode is off'],
   [webUi.includes("if(count===2)for(let chevron=0;chevron<count;chevron++)") && webUi.includes("drawChevron(right-radius*t-chevron*(radius+2)*t,d)"), 'double chevron preview must draw on both sides'],
   [webUi.includes("chevron(`chevR${i}`,b.right-g.radius-i*(g.radius+2)*g.thickness,pointsRight)"), 'double chevron schema must include the right side'],
+  [webUi.includes('id="channelColors">Color Channels</button>') && !webUi.includes('Color channels by band'), 'channel color action must use the requested label'],
+  [webUi.includes("L6:'#ff6600'") && webUi.includes("L7:'#00ffff'") && webUi.includes("R1:'#ffffff'") && webUi.includes("R2:'#ff0000'") && webUi.includes("F2:'#ffff00'") && webUi.includes("F4:'#00ff00'") && webUi.includes("R7:'#0000ff'") && webUi.includes("R8:'#ff00ff'"), 'channel color mapping must match the reference card'],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, message]) => message);
