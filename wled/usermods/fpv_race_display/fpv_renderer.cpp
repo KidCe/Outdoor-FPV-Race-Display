@@ -138,6 +138,7 @@ bool Renderer::isAnimated() const {
   if (!_scene) return false;
   for (uint8_t i = 0; i < _scene->nodeCount; i++) {
     const Value* value = findValue(_scene->nodes[i].binding);
+    if (value && value->hasVisible && !value->visible) continue;
     const Effect effect = value && value->hasEffect ? value->effect : _scene->nodes[i].effect;
     if (effect != Effect::None || _scene->nodes[i].motion != Motion::None) return true;
   }
@@ -150,6 +151,7 @@ void Renderer::render(WS2812FX& target, uint32_t now, bool drawBackground) {
   for (uint8_t i = 0; i < _scene->nodeCount; i++) {
     const Node& node = _scene->nodes[i];
     const Value* value = findValue(node.binding);
+    if (value && value->hasVisible && !value->visible) continue;
     const uint32_t color = nodeColor(node, value, node.x, node.y, now);
     int16_t offsetX = 0, offsetY = 0;
     motionOffset(node, now, offsetX, offsetY);

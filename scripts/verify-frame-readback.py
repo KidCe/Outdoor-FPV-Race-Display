@@ -8,30 +8,40 @@ import time
 
 
 TEST_VALUES = [
-    {"key": "header", "text": "READBACK", "color": 0xFFFFFF, "effect": "none"},
-    {"key": "headerDecor", "text": "", "color": 0xFFFFFF, "effect": "none"},
-    {"key": "divider", "text": "", "color": 0xFFFFFF, "effect": "none"},
+    {"key": "header", "text": "READBACK", "color": 0xFFFFFF},
+    {"key": "headerDecor", "color": 0xFFFFFF},
+    {"key": "divider", "color": 0xFFFFFF},
 ]
+SEMANTIC_BINDINGS = ("headerCurrent", "headerStaged", "headerNext", "headerNext2")
 for index, (channel, pilot) in enumerate(
     (("R1", "ALPHA"), ("R2", "BRAVO"), ("F2", "CHARLIE"), ("F4", "DELTA"),
      ("R7", "ECHO"), ("R8", "FOXTROT"), ("L6", "GOLF"), ("L7", "HOTEL"))
 ):
     TEST_VALUES.extend((
-        {"key": f"ch{index}", "text": channel, "color": 0xFFFFFF, "effect": "none"},
-        {"key": f"pn{index}", "text": pilot, "color": 0xFFFFFF, "effect": "none"},
+        {"key": f"ch{index}", "text": channel, "color": 0xFFFFFF},
+        {"key": f"pn{index}", "text": pilot, "color": 0xFFFFFF},
     ))
 
 
 class ProtocolClient:
-    def __init__(self, send_receive):
+    def __init__(self, send_receive, attempts=1):
         self._send_receive = send_receive
+        self._attempts = attempts
         self._sequence = 0
 
     def command(self, operation, **fields):
         self._sequence += 1
         envelope = {"fpv": {"p": 1, "sid": "verifyrb", "seq": self._sequence,
                             "op": operation, **fields}}
-        reply = self._send_receive(envelope)["fpv"]
+        last_error = None
+        for _ in range(self._attempts):
+            try:
+                reply = self._send_receive(envelope)["fpv"]
+                break
+            except TimeoutError as error:
+                last_error = error
+        else:
+            raise last_error
         if reply.get("seq") != self._sequence:
             raise RuntimeError(f"Unexpected sequence in reply: {reply}")
         if not reply.get("ok"):
@@ -70,10 +80,13 @@ def serial_client(port_name, baud):
                 line, pending = pending.split(b"\n", 1)
                 marker = line.find(b'{"fpv"')
                 if marker >= 0:
-                    return json.loads(line[marker:])
+                    try:
+                        return json.loads(line[marker:])
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
         raise TimeoutError("ESP32 did not answer over USB")
 
-    return ProtocolClient(send_receive), port.close
+    return ProtocolClient(send_receive, attempts=3), port.close
 
 
 def checksum_rgb(pixels):
@@ -111,43 +124,101 @@ def capture(client, source):
         client.command("frame.end", capture=capture_id)
 
 
+def install_schema(client, schema):
+    canvas = schema["canvas"]
+    client.command("schema.begin", schema=schema["schemaId"], hash=schema["schemaHash"],
+                   revision=schema["revision"], width=canvas["width"], height=canvas["height"],
+                   background=canvas["background"], fps=canvas["fps"])
+    try:
+        for node in schema["nodes"]:
+            client.command("schema.node", node=node)
+        client.command("schema.commit", activate=True)
+    except Exception:
+        client.command("schema.abort")
+        raise
+
+
+def semantic_values(active_binding):
+    frame_values = [
+        {"key": "headerFrame", "color": 0xFFFFFF, "visible": False}
+    ]
+    frame_values.extend(
+        {"key": binding, "color": 0xFFFFFF, "visible": binding == active_binding}
+        for binding in SEMANTIC_BINDINGS
+    )
+    return TEST_VALUES + frame_values
+
+
+def apply_state(client, schema_id, schema_hash, values):
+    for offset in range(0, len(values), 8):
+        fields = {
+            "schema": schema_id,
+            "hash": schema_hash,
+            "replace": offset == 0,
+            "values": values[offset:offset + 8],
+        }
+        if offset == 0:
+            fields.update(brightness=50, backgroundEffect=0)
+        client.command("state", **fields)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=("websocket", "usb"), default="websocket")
     parser.add_argument("--url", default="ws://192.168.0.201/fpv/ws")
     parser.add_argument("--port", default="COM7")
     parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--schema-file")
+    parser.add_argument("--semantic-states", action="store_true")
+    parser.add_argument("--semantic-state", choices=SEMANTIC_BINDINGS)
     args = parser.parse_args()
 
     client, close = (websocket_client(args.url) if args.transport == "websocket"
                      else serial_client(args.port, args.baud))
     try:
         hello = client.command("hello")
-        client.command("use", schema=hello["schema"], hash=hello["hash"])
-        client.command("state", schema=hello["schema"], hash=hello["hash"], replace=True,
-                       brightness=50, backgroundEffect=0, values=TEST_VALUES)
-        time.sleep(0.25)
-        metadata, pixels = capture(client, "output")
+        if args.schema_file:
+            with open(args.schema_file, encoding="utf-8") as schema_file:
+                schema = json.load(schema_file)
+            install_schema(client, schema)
+            schema_id, schema_hash = schema["schemaId"], schema["schemaHash"]
+        else:
+            schema_id, schema_hash = hello["schema"], hello["hash"]
+        client.command("use", schema=schema_id, hash=schema_hash)
+        bindings = (SEMANTIC_BINDINGS if args.semantic_states else
+                    (args.semantic_state,) if args.semantic_state else (None,))
+        captures = []
+        for binding in bindings:
+            apply_state(client, schema_id, schema_hash,
+                        semantic_values(binding) if binding else TEST_VALUES)
+            time.sleep(0.25)
+            captures.append((binding, *capture(client, "output")))
     finally:
         close()
 
-    colors = {tuple(pixels[index:index + 3]) for index in range(0, len(pixels), 3)}
-    lit = sum(any(pixels[index:index + 3]) for index in range(0, len(pixels), 3))
-    result = {
-        "transport": args.transport,
-        "frame": metadata["frame"],
-        "size": f"{metadata['width']}x{metadata['height']}",
-        "pixels": metadata["total"],
-        "lit": lit,
-        "colors": len(colors),
-        "checksum": f"{metadata['checksum']:08x}",
-        "exact": metadata["exact"],
-    }
-    print(json.dumps(result, separators=(",", ":")))
-    if not metadata["exact"]:
-        raise SystemExit("FAIL: HUB75 output exposes occupancy only, not exact RGB")
-    if not 0 < lit < metadata["total"] // 2 or len(colors) < 2:
-        raise SystemExit("FAIL: output is blank or a mostly solid frame; rendered text did not reach HUB75")
+    checksums = set()
+    for binding, metadata, pixels in captures:
+        colors = {tuple(pixels[index:index + 3]) for index in range(0, len(pixels), 3)}
+        lit = sum(any(pixels[index:index + 3]) for index in range(0, len(pixels), 3))
+        result = {
+            "transport": args.transport,
+            "state": binding or "default",
+            "frame": metadata["frame"],
+            "size": f"{metadata['width']}x{metadata['height']}",
+            "pixels": metadata["total"],
+            "lit": lit,
+            "colors": len(colors),
+            "checksum": f"{metadata['checksum']:08x}",
+            "exact": metadata["exact"],
+        }
+        print(json.dumps(result, separators=(",", ":")))
+        if not metadata["exact"]:
+            raise SystemExit("FAIL: HUB75 output exposes occupancy only, not exact RGB")
+        if not 0 < lit < metadata["total"] // 2 or len(colors) < 2:
+            raise SystemExit("FAIL: output is blank or a mostly solid frame; rendered text did not reach HUB75")
+        checksums.add(metadata["checksum"])
+    if args.semantic_states and len(checksums) != len(SEMANTIC_BINDINGS):
+        raise SystemExit("FAIL: semantic header states did not produce four distinct frames")
     print("PASS: sparse text frame reached the final HUB75 output buffer")
 
 

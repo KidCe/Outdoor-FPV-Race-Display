@@ -47,7 +47,7 @@ Prebuilt images are in `firmware/`:
 - `WLED_ESP32_HUB75_FPV_ota.bin` is the application image for WLED's firmware-update page, or offset `0x10000` with esptool.
 - `WLED_Waveshare_HUB75_FPV_ota.bin` is the application image for the Waveshare ESP32-S3 Matrix board target.
 
-The project fixes the wired upload rate at 115200 baud because higher rates produced verified serial corruption on the test setup.
+Firmware flashing is fixed at 57600 baud because the tested CP210x link dropped out partway through larger images at 115200 baud. The live USB protocol remains at 115200 baud.
 
 Protocol details are in [docs/protocol-v1.md](docs/protocol-v1.md). The canonical usermod source is [wled/usermods/fpv_race_display](wled/usermods/fpv_race_display).
 

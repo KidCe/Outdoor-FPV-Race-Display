@@ -33,9 +33,13 @@ A layout is identified by three fields:
 
 The chunked installation path keeps every serial/WebSocket message small. The module settings page additionally accepts a complete exported JSON schema file and compiles it into a fixed-size binary scene in WLED's filesystem.
 
+Controllers should also split a complete live state into patches of no more than eight values. The first `state` command uses `replace: true` and carries brightness/background controls; following commands use `replace: false`. This keeps USB serial lines below WLED's receive-buffer limit while using the same operations over both transports.
+
 ## Layout model
 
-Protocol v1 supports `text`, `rect`, `line`, and `polyline` nodes. A node may have a `bind` key. State values update the text, RGB color, and `none`, `rainbow`, or `glitter` effect for that binding without changing the installed geometry.
+Protocol v1 supports `text`, `rect`, `line`, and `polyline` nodes. A node may have a `bind` key. State values update the text, RGB color, `none`, `rainbow`, or `glitter` effect, and optional `visible` flag for that binding without changing the installed geometry. Omitting `visible` leaves older clients and schemas visible by default.
+
+The FPV race schema installs Current Heat, Staged, Next Up, and Next +2 arrow groups together under separate bindings. A normal state update selects one group with `visible: true` and hides the other three. Switching between these race states therefore keeps the same schema ID and hash; only structural edits such as fonts, coordinates, columns, padding, and line geometry require a schema reinstall.
 
 Any node can optionally animate without controller traffic by declaring `motion` as `left`, `right`, `up`, or `down`. `motionDistance` is constrained to 0–4 pixels and defaults to 1; `motionPeriod` is constrained to 200–5000 ms and defaults to 900. The ESP32 applies a subtle triangular movement and renders it at the schema's configured frame rate. Omitting `motion` keeps the node static.
 
@@ -70,7 +74,11 @@ Example state update:
     "brightness": 50,
     "backgroundEffect": 0,
     "values": [
-      {"key":"header","text":"CURRENT HEAT Q12 H22/23","color":16777215},
+      {"key":"header","text":"Q12 H22/23","color":16777215},
+      {"key":"headerCurrent","color":16777215,"visible":true},
+      {"key":"headerStaged","color":16777215,"visible":false},
+      {"key":"headerNext","color":16777215,"visible":false},
+      {"key":"headerNext2","color":16777215,"visible":false},
       {"key":"ch0","text":"R1","color":16777215},
       {"key":"pn0","text":"KILLIANFPV","color":16777215,"effect":"glitter"}
     ]

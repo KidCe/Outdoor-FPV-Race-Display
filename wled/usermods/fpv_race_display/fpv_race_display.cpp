@@ -259,6 +259,7 @@ private:
       if (source.containsKey("text")) copyText(value->text, sizeof(value->text), source["text"] | "");
       if (source.containsKey("color")) { value->color = parseColor(source["color"]); value->hasColor = true; }
       if (source.containsKey("effect")) { value->effect = parseEffect(source["effect"] | "none"); value->hasEffect = true; }
+      if (source.containsKey("visible")) { value->visible = source["visible"] | true; value->hasVisible = true; }
     }
     _active = true;
     strip.trigger();

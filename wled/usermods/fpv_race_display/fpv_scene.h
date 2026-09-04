@@ -72,6 +72,8 @@ struct Value {
   Effect effect = Effect::None;
   bool hasColor = false;
   bool hasEffect = false;
+  bool visible = true;
+  bool hasVisible = false;
 };
 
 struct DisplayState {
