@@ -59,6 +59,22 @@ uint32_t Renderer::nodeColor(const Node& node, const Value* value, int16_t x, in
   return base;
 }
 
+void Renderer::motionOffset(const Node& node, uint32_t now, int16_t& offsetX, int16_t& offsetY) const {
+  offsetX = 0;
+  offsetY = 0;
+  if (node.motion == Motion::None || node.motionDistance == 0) return;
+  const uint16_t period = node.motionPeriod < 200 ? 200 : node.motionPeriod;
+  const uint32_t phasedNow = now + (static_cast<uint32_t>(node.motionPhase) * period) / 255U;
+  const uint16_t elapsed = phasedNow % period;
+  const uint16_t half = period / 2U;
+  const uint16_t triangle = elapsed <= half ? elapsed : period - elapsed;
+  const int16_t distance = static_cast<int16_t>((static_cast<uint32_t>(triangle) * node.motionDistance + half / 2U) / half);
+  if (node.motion == Motion::Left) offsetX = -distance;
+  else if (node.motion == Motion::Right) offsetX = distance;
+  else if (node.motion == Motion::Up) offsetY = -distance;
+  else if (node.motion == Motion::Down) offsetY = distance;
+}
+
 void Renderer::pixel(Segment& segment, int16_t x, int16_t y, uint32_t color) const {
   if (!_scene || x < 0 || y < 0 || x >= static_cast<int16_t>(_scene->width) || y >= static_cast<int16_t>(_scene->height)) return;
   segment.setPixelColorXY(x, y, color);
@@ -89,13 +105,15 @@ void Renderer::line(Segment& segment, int16_t x0, int16_t y0, int16_t x1, int16_
   }
 }
 
-void Renderer::text(Segment& segment, const Node& node, const Value* value, uint32_t now) const {
+void Renderer::text(Segment& segment, const Node& node, const Value* value, uint32_t now, int16_t offsetX, int16_t offsetY) const {
   const char* content = value ? value->text : node.text;
   const size_t length = strlen(content);
   if (!length) return;
   const int16_t advance = (node.fontWidth + 1) * node.scale;
   const int16_t textWidth = length * advance - node.scale;
-  int16_t originX = node.x;
+  const int16_t clipX = node.x + offsetX;
+  const int16_t clipY = node.y + offsetY;
+  int16_t originX = clipX;
   if (node.align == Align::Center) originX += (node.width - textWidth) / 2;
   else if (node.align == Align::Right) originX += node.width - textWidth;
 
@@ -108,8 +126,8 @@ void Renderer::text(Segment& segment, const Node& node, const Value* value, uint
         if (!(row & (1 << (4 - sourceX)))) continue;
         for (uint8_t sy = 0; sy < node.scale; sy++) for (uint8_t sx = 0; sx < node.scale; sx++) {
           const int16_t px = originX + index * advance + gx * node.scale + sx;
-          const int16_t py = node.y + gy * node.scale + sy;
-          if (px >= node.x && px < node.x + node.width && (!node.height || py < node.y + node.height)) pixel(segment, px, py, nodeColor(node, value, px, py, now));
+          const int16_t py = clipY + gy * node.scale + sy;
+          if (px >= clipX && px < clipX + node.width && (!node.height || py < clipY + node.height)) pixel(segment, px, py, nodeColor(node, value, px, py, now));
         }
       }
     }
@@ -121,7 +139,7 @@ bool Renderer::isAnimated() const {
   for (uint8_t i = 0; i < _scene->nodeCount; i++) {
     const Value* value = findValue(_scene->nodes[i].binding);
     const Effect effect = value && value->hasEffect ? value->effect : _scene->nodes[i].effect;
-    if (effect != Effect::None) return true;
+    if (effect != Effect::None || _scene->nodes[i].motion != Motion::None) return true;
   }
   return false;
 }
@@ -133,12 +151,14 @@ void Renderer::render(Segment& segment, uint32_t now, bool drawBackground) {
     const Node& node = _scene->nodes[i];
     const Value* value = findValue(node.binding);
     const uint32_t color = nodeColor(node, value, node.x, node.y, now);
+    int16_t offsetX = 0, offsetY = 0;
+    motionOffset(node, now, offsetX, offsetY);
     switch (node.type) {
-      case NodeType::Text: text(segment, node, value, now); break;
-      case NodeType::Rect: rect(segment, node.x, node.y, node.width, node.height, color, node.filled, node.thickness); break;
-      case NodeType::Line: line(segment, node.x, node.y, node.x2, node.y2, color, node.thickness); break;
+      case NodeType::Text: text(segment, node, value, now, offsetX, offsetY); break;
+      case NodeType::Rect: rect(segment, node.x + offsetX, node.y + offsetY, node.width, node.height, color, node.filled, node.thickness); break;
+      case NodeType::Line: line(segment, node.x + offsetX, node.y + offsetY, node.x2 + offsetX, node.y2 + offsetY, color, node.thickness); break;
       case NodeType::Polyline:
-        for (uint8_t point = 1; point < node.pointCount; point++) line(segment, node.points[point - 1].x, node.points[point - 1].y, node.points[point].x, node.points[point].y, color, node.thickness);
+        for (uint8_t point = 1; point < node.pointCount; point++) line(segment, node.points[point - 1].x + offsetX, node.points[point - 1].y + offsetY, node.points[point].x + offsetX, node.points[point].y + offsetY, color, node.thickness);
         break;
     }
   }

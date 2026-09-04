@@ -37,6 +37,8 @@ The chunked installation path keeps every serial/WebSocket message small. The mo
 
 Protocol v1 supports `text`, `rect`, `line`, and `polyline` nodes. A node may have a `bind` key. State values update the text, RGB color, and `none`, `rainbow`, or `glitter` effect for that binding without changing the installed geometry.
 
+Any node can optionally animate without controller traffic by declaring `motion` as `left`, `right`, `up`, or `down`. `motionDistance` is constrained to 0–4 pixels and defaults to 1; `motionPeriod` is constrained to 200–5000 ms and defaults to 900. The ESP32 applies a subtle triangular movement and renders it at the schema's configured frame rate. Omitting `motion` keeps the node static.
+
 `state` also accepts two display controls:
 
 - `brightness`: global display brightness from 0 to 100 percent.

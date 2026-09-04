@@ -5,7 +5,7 @@
 namespace fpv_display {
 
 static constexpr uint8_t PROTOCOL_VERSION = 1;
-static constexpr uint16_t STORAGE_VERSION = 2;
+static constexpr uint16_t STORAGE_VERSION = 3;
 static constexpr uint8_t MAX_NODES = 40;
 static constexpr uint8_t MAX_VALUES = 24;
 static constexpr uint8_t MAX_POINTS = 12;
@@ -17,6 +17,7 @@ static constexpr size_t TEXT_SIZE = 41;
 enum class NodeType : uint8_t { Text, Rect, Line, Polyline };
 enum class Align : uint8_t { Left, Center, Right };
 enum class Effect : uint8_t { None, Rainbow, Glitter };
+enum class Motion : uint8_t { None, Left, Right, Up, Down };
 
 struct Point {
   int16_t x = 0;
@@ -41,6 +42,10 @@ struct Node {
   uint8_t thickness = 1;
   Align align = Align::Left;
   Effect effect = Effect::None;
+  Motion motion = Motion::None;
+  uint16_t motionPeriod = 900;
+  uint8_t motionDistance = 1;
+  uint8_t motionPhase = 0;
   bool filled = true;
   uint8_t pointCount = 0;
   Point points[MAX_POINTS] = {};
@@ -112,6 +117,14 @@ inline Effect parseEffect(const char* value) {
   return Effect::None;
 }
 
+inline Motion parseMotion(const char* value) {
+  if (value && !strcmp(value, "left")) return Motion::Left;
+  if (value && !strcmp(value, "right")) return Motion::Right;
+  if (value && !strcmp(value, "up")) return Motion::Up;
+  if (value && !strcmp(value, "down")) return Motion::Down;
+  return Motion::None;
+}
+
 inline Align parseAlign(const char* value) {
   if (value && !strcmp(value, "center")) return Align::Center;
   if (value && !strcmp(value, "right")) return Align::Right;
@@ -145,6 +158,10 @@ inline bool parseNode(JsonObjectConst source, Node& node, char* error, size_t er
   node.thickness = constrain(source["thickness"] | 1, 1, 4);
   node.align = parseAlign(source["align"] | "left");
   node.effect = parseEffect(source["effect"] | "none");
+  node.motion = parseMotion(source["motion"] | "none");
+  node.motionPeriod = constrain(source["motionPeriod"] | 900, 200, 5000);
+  node.motionDistance = constrain(source["motionDistance"] | 1, 0, 4);
+  node.motionPhase = source["motionPhase"] | 0;
   node.filled = source["filled"] | true;
   node.pointCount = 0;
 
