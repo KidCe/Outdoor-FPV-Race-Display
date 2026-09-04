@@ -1,0 +1,7 @@
+{
+  "name": "fpv_race_display",
+  "version": "0.1.0",
+  "description": "Declarative, schema-driven FPV race display renderer for WLED matrices",
+  "build": { "libArchive": false },
+  "dependencies": {}
+}

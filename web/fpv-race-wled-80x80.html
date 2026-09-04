@@ -1,0 +1,311 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FPV Race WLED Display 80×80</title><style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:18px;background:#101010;color:#eee;font-family:system-ui,sans-serif}h1{font-size:22px;margin:0 0 4px}.sub,.hint{opacity:.72}.title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}.advanced-toggle{margin-top:2px;padding:7px 10px;background:#171717;border:1px solid #333;border-radius:8px}.advanced-only{display:none!important}.advanced-mode .advanced-only{display:block!important}.panel{background:#171717;border:1px solid #333;border-radius:10px;padding:12px;margin:12px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}label{display:flex;flex-direction:column;gap:4px;font-size:12px}input,select,button{background:#222;color:#eee;border:1px solid #444;border-radius:7px;padding:7px}input[type=color]{height:32px;min-width:42px;padding:2px}.pilots{display:grid;grid-template-columns:70px 1fr 70px 1fr;gap:7px;margin-top:9px}.fieldline{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:5px}.pilotline{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:5px;align-items:center}.advanced-mode .pilotline{grid-template-columns:minmax(0,1fr) 42px 104px}.pilot-effect{min-width:0;padding-inline:5px}.row{display:flex;gap:8px;flex-wrap:wrap}button{cursor:pointer}.preview-toolbar{align-items:flex-end}.preview-scale-control{min-width:230px}.preview-scale-heading{display:flex;justify-content:space-between;gap:12px}.preview-scale-control input{padding:0}#previewViewport{max-width:100%;overflow:auto;margin-top:10px}canvas{display:block;width:auto;height:auto;max-width:none;background:#000;border:1px solid #333;image-rendering:pixelated;margin:0}#generated{white-space:pre;font-family:ui-monospace,monospace;background:#111;border:1px solid #333;padding:9px;border-radius:7px;overflow:auto}@media(max-width:700px){.pilots{grid-template-columns:70px 1fr}.advanced-mode .pilotline{grid-template-columns:minmax(0,1fr) 42px 96px}}
+</style><style>.check{display:flex;flex-direction:row;align-items:center;gap:6px}.check input{accent-color:#30d158}button:disabled{opacity:.45;cursor:not-allowed}#usbStatus.ok{color:#30d158;opacity:1}#usbStatus.error{color:#ff453a;opacity:1}</style></head><body>
+<div class="title-row"><div><h1>FPV Race WLED Display</h1><div class="sub">80×80 race-status display with fixed channel and pilot columns. No display is required to use the preview.</div></div><label class="check advanced-toggle"><input id="advancedMode" type="checkbox"> Advanced mode</label></div>
+<div class="panel"><div class="grid">
+<label>Display preset<select id="displayPreset"><option value="80x80" selected>2× P4 → 80×80</option><option value="128x32">2× P5 → 128×32</option><option value="160x40">2× P4 → 160×40</option><option value="208x52">2× P3.076 → 208×52</option><option value="64x32">1× P5 → 64×32</option><option value="256x32">4× P5 horizontal → 256×32</option><option value="128x64">4× P5 2×2 → 128×64</option><option value="custom">Custom</option></select></label>
+<label>Width<input id="w" type="number" value="80"></label><label>Height<input id="h" type="number" value="80"></label><label>Pitch mm<input id="pitch" type="number" value="4" step="0.001"></label>
+<label>Bitmap font<select id="font"><option value="3x5">3×5</option><option value="4x6">4×6</option><option value="5x7" selected>5×7</option><option value="6x8">6×8</option><option value="7x9">7×9</option><option value="8x12">8×12</option><option value="10x14">10×14</option><option value="12x16">12×16</option><option value="14x20">14×20</option></select></label><label>Pixel zoom<input id="zoom" type="number" value="5" min="2" max="14"></label><label>Pixel weight<select id="pixelMode"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></label><label>Line gap<input id="gap" type="number" value="1" min="0" max="6"></label>
+<label>All text color<input id="allColor" type="color" value="#ffffff"></label>
+</div></div>
+<div class="panel"><div class="grid">
+<label>Title<input id="titleText" value="CURRENT HEAT"></label><label>Round<input id="round" value="Q12"></label><label>Heat<input id="heat" value="H22/23"></label><label>Header font<select id="headerFont"><option value="same" selected>Same as body</option><option value="3x5">3×5</option><option value="4x6">4×6</option><option value="5x7">5×7</option><option value="6x8">6×8</option><option value="7x9">7×9</option><option value="8x12">8×12</option><option value="10x14">10×14</option><option value="12x16">12×16</option><option value="14x20">14×20</option></select></label><label>Header pixel weight<select id="headerPixelMode"><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option></select></label><label>Header style<select id="headerStyle"><option value="plain">Plain</option><option value="underline" selected>Underline</option><option value="double">Overline + underline</option><option value="bar">Solid bar</option></select></label><label>Header frame<select id="headerFrame"><option value="none" selected>None</option><option value="sides">Side bars</option><option value="brackets">Square brackets</option><option value="corners">Corner brackets</option><option value="box">Full box</option><option value="rails">Top + bottom rails</option><option value="inward">Inward chevrons</option><option value="outward">Outward chevrons</option><option value="left-single">Left chevron</option><option value="left-double">Double left chevrons</option><option value="right-single">Right chevron</option><option value="right-double">Double right chevrons</option></select></label><label>Header alignment<select id="headerAlign"><option value="center" selected>Center</option><option value="left">Left</option><option value="right">Right</option></select></label><label>Header X offset (px)<input id="headerOffsetX" type="number" value="0" step="1"></label><label>Header Y offset (px)<input id="headerOffsetY" type="number" value="0" step="1"></label><label>Frame horizontal padding<input id="headerPaddingX" type="number" value="1" min="0" step="1"></label><label>Frame vertical padding<input id="headerPaddingY" type="number" value="1" min="0" step="1"></label><label>Frame thickness<input id="headerFrameThickness" type="number" value="1" min="1" max="3" step="1"></label><label>Header color<input id="headerColor" type="color" value="#ffffff"></label><label>Divider color<input id="dividerColor" type="color" value="#ffffff"></label><label>Background color<input id="backgroundColor" type="color" value="#000000"></label>
+<label>Layout<select id="columns"><option value="2">2 columns × 4 rows</option><option value="1" selected>1 column × 8 rows</option></select></label><label>Channel width<input id="channelWidth" type="number" value="2" min="2" max="6"></label><label>Pilot width<input id="pilotWidth" type="number" value="9" min="3" max="20"></label><label>Channel → name<input id="channelGap" type="number" value="1" min="0" max="4"></label><label>Name → center<input id="nameGap" type="number" value="1" min="0" max="4"></label><label>Divider width<input id="dividerWidth" type="number" value="1" min="1" max="3"></label><label>Left margin<input id="leftMargin" type="number" value="0" min="0" max="6"></label><label>Right margin<input id="rightMargin" type="number" value="0" min="0" max="6"></label><label>Header gap<input id="headerGap" type="number" value="6" min="0"></label>
+</div><div class="pilots" id="pilotGrid"></div></div>
+<div class="panel"><div class="row preview-toolbar"><label class="preview-scale-control"><span class="preview-scale-heading"><span>Preview scale</span><output id="previewScaleValue" for="previewScale">150%</output></span><input id="previewScale" type="range" min="25" max="400" step="10" value="150"></label><button id="example">Load example pilots</button><button id="shuffle">Shuffle names</button><button id="raceband">Raceband R1–R8</button><button id="bandColors">Color channels by band</button><button id="whiteColors">Set all text white</button><button id="clear">Clear pilots</button><button id="clearPixels">Clear stale pixels</button></div><div id="previewViewport"><canvas id="c"></canvas></div><div id="stats" class="hint"></div></div>
+<div class="panel"><strong>USB / WLED output</strong><div class="grid">
+<label>Serial baud rate<select id="serialBaud"><option value="115200" selected>115200</option><option value="230400">230400</option><option value="460800">460800</option><option value="921600">921600</option></select></label>
+<label>Transport<select id="transport"><option value="usb" selected>USB serial (FPV protocol)</option><option value="wireless">Wireless WLED (FPV WebSocket)</option></select></label><label>WLED URL<input id="wledUrl" value="http://wled.local" placeholder="http://192.168.0.201"></label><label>Layout schema ID<input id="schemaId" value="fpv-race-80x80-v1" maxlength="24"></label>
+<label>Display brightness <output id="displayBrightnessValue" for="displayBrightness">50%</output><input id="displayBrightness" type="range" min="0" max="100" step="1" value="50"></label><label>WLED background effect <output id="backgroundEffectValue" for="backgroundEffect">0%</output><input id="backgroundEffect" type="range" min="0" max="25" step="1" value="0"></label>
+</div><div class="row"><button id="connectOutput">Connect output</button><button id="installSchema">Install current schema</button><button id="exportSchema">Export WLED layout schema</button><label class="check"><input id="liveSend" type="checkbox"> Live output</label></div><div id="usbStatus" class="hint">Install the layout once, then live updates send only text, colors, and effects.</div></div>
+<div class="panel"><strong>Generated text</strong><div id="generated"></div><div class="hint">Long names are clipped to the fixed pilot column so the second channel stays aligned.</div></div>
+<script>
+const FONTS={
+"3x5":{w:3,h:5,s:1,c:{
+" ":["000","000","000","000","000"],
+"A":["010","101","111","101","101"],"B":["110","101","110","101","110"],"C":["011","100","100","100","011"],
+"D":["110","101","101","101","110"],"E":["111","100","110","100","111"],"F":["111","100","110","100","100"],
+"G":["011","100","101","101","011"],"H":["101","101","111","101","101"],"I":["111","010","010","010","111"],
+"J":["001","001","001","101","010"],"K":["101","101","110","101","101"],"L":["100","100","100","100","111"],
+"M":["101","111","111","101","101"],"N":["101","111","111","111","101"],"O":["010","101","101","101","010"],
+"P":["110","101","110","100","100"],"Q":["010","101","101","111","011"],"R":["110","101","110","101","101"],
+"S":["011","100","010","001","110"],"T":["111","010","010","010","010"],"U":["101","101","101","101","111"],
+"V":["101","101","101","101","010"],"W":["101","101","111","111","101"],"X":["101","101","010","101","101"],
+"Y":["101","101","010","010","010"],"Z":["111","001","010","100","111"],
+"0":["111","101","101","101","111"],"1":["010","110","010","010","111"],"2":["110","001","010","100","111"],
+"3":["110","001","010","001","110"],"4":["101","101","111","001","001"],"5":["111","100","110","001","110"],
+"6":["011","100","111","101","111"],"7":["111","001","010","010","010"],"8":["111","101","111","101","111"],
+"9":["111","101","111","001","110"],"/":["001","001","010","100","100"],"-":["000","000","111","000","000"],
+":":["000","010","000","010","000"],".":["000","000","000","000","010"],"|":["010","010","010","010","010"],
+"?":["110","001","010","000","010"]
+}},
+"4x6":{w:4,h:6,s:1,c:{
+" ":["0000","0000","0000","0000","0000","0000"],
+"A":["0110","1001","1001","1111","1001","1001"],"B":["1110","1001","1110","1001","1001","1110"],
+"C":["0111","1000","1000","1000","1000","0111"],"D":["1110","1001","1001","1001","1001","1110"],
+"E":["1111","1000","1110","1000","1000","1111"],"F":["1111","1000","1110","1000","1000","1000"],
+"G":["0111","1000","1011","1001","1001","0111"],"H":["1001","1001","1111","1001","1001","1001"],
+"I":["1111","0110","0110","0110","0110","1111"],"J":["0011","0001","0001","0001","1001","0110"],
+"K":["1001","1010","1100","1010","1001","1001"],"L":["1000","1000","1000","1000","1000","1111"],
+"M":["1001","1111","1111","1001","1001","1001"],"N":["1001","1101","1011","1001","1001","1001"],
+"O":["0110","1001","1001","1001","1001","0110"],"P":["1110","1001","1110","1000","1000","1000"],
+"Q":["0110","1001","1001","1011","1001","0111"],"R":["1110","1001","1110","1010","1001","1001"],
+"S":["0111","1000","0110","0001","0001","1110"],"T":["1111","0110","0110","0110","0110","0110"],
+"U":["1001","1001","1001","1001","1001","0110"],"V":["1001","1001","1001","1001","0110","0110"],
+"W":["1001","1001","1001","1111","1111","1001"],"X":["1001","1001","0110","0110","1001","1001"],
+"Y":["1001","1001","0110","0110","0110","0110"],"Z":["1111","0001","0010","0100","1000","1111"],
+"0":["0110","1001","1011","1101","1001","0110"],"1":["0110","1110","0110","0110","0110","1111"],
+"2":["1110","0001","0010","0100","1000","1111"],"3":["1110","0001","0110","0001","0001","1110"],
+"4":["0010","0110","1010","1111","0010","0010"],"5":["1111","1000","1110","0001","0001","1110"],
+"6":["0111","1000","1110","1001","1001","0110"],"7":["1111","0001","0010","0100","0100","0100"],
+"8":["0110","1001","0110","1001","1001","0110"],"9":["0110","1001","0111","0001","0001","1110"],
+"/":["0001","0010","0010","0100","0100","1000"],"-":["0000","0000","1111","0000","0000","0000"],
+":":["0000","0110","0000","0000","0110","0000"],".":["0000","0000","0000","0000","0110","0110"],
+"|":["0110","0110","0110","0110","0110","0110"],"?":["1110","0001","0010","0100","0000","0100"]
+}},
+"5x7":{w:5,h:7,s:1,c:{
+" ":["00000","00000","00000","00000","00000","00000","00000"],
+"A":["01110","10001","10001","11111","10001","10001","10001"],"B":["11110","10001","10001","11110","10001","10001","11110"],
+"C":["01111","10000","10000","10000","10000","10000","01111"],"D":["11110","10001","10001","10001","10001","10001","11110"],
+"E":["11111","10000","10000","11110","10000","10000","11111"],"F":["11111","10000","10000","11110","10000","10000","10000"],
+"G":["01111","10000","10000","10111","10001","10001","01111"],"H":["10001","10001","10001","11111","10001","10001","10001"],
+"I":["11111","00100","00100","00100","00100","00100","11111"],"J":["00111","00010","00010","00010","10010","10010","01100"],
+"K":["10001","10010","10100","11000","10100","10010","10001"],"L":["10000","10000","10000","10000","10000","10000","11111"],
+"M":["10001","11011","10101","10101","10001","10001","10001"],"N":["10001","11001","10101","10011","10001","10001","10001"],
+"O":["01110","10001","10001","10001","10001","10001","01110"],"P":["11110","10001","10001","11110","10000","10000","10000"],
+"Q":["01110","10001","10001","10001","10101","10010","01101"],"R":["11110","10001","10001","11110","10100","10010","10001"],
+"S":["01111","10000","10000","01110","00001","00001","11110"],"T":["11111","00100","00100","00100","00100","00100","00100"],
+"U":["10001","10001","10001","10001","10001","10001","01110"],"V":["10001","10001","10001","10001","10001","01010","00100"],
+"W":["10001","10001","10001","10101","10101","10101","01010"],"X":["10001","10001","01010","00100","01010","10001","10001"],
+"Y":["10001","10001","01010","00100","00100","00100","00100"],"Z":["11111","00001","00010","00100","01000","10000","11111"],
+"0":["01110","10001","10011","10101","11001","10001","01110"],"1":["00100","01100","00100","00100","00100","00100","01110"],
+"2":["01110","10001","00001","00010","00100","01000","11111"],"3":["11110","00001","00001","01110","00001","00001","11110"],
+"4":["00010","00110","01010","10010","11111","00010","00010"],"5":["11111","10000","10000","11110","00001","00001","11110"],
+"6":["01110","10000","10000","11110","10001","10001","01110"],"7":["11111","00001","00010","00100","01000","01000","01000"],
+"8":["01110","10001","10001","01110","10001","10001","01110"],"9":["01110","10001","10001","01111","00001","00001","01110"],
+"/":["00001","00010","00100","01000","10000","00000","00000"],"-":["00000","00000","00000","11111","00000","00000","00000"],
+":":["00000","00100","00100","00000","00100","00100","00000"],".":["00000","00000","00000","00000","00000","00110","00110"],
+"|":["00100","00100","00100","00100","00100","00100","00100"],"?":["01110","10001","00001","00010","00100","00000","00100"]
+}}};
+
+
+// Narrow I/1 and extra useful symbols
+FONTS["3x5"].c["I"]=["010","010","010","010","010"]; FONTS["3x5"].c["1"]=["010","110","010","010","111"];
+FONTS["4x6"].c["I"]=["0010","0010","0010","0010","0010","0010"]; FONTS["4x6"].c["1"]=["0010","0110","0010","0010","0010","0111"];
+FONTS["5x7"].c["I"]=["00100","00100","00100","00100","00100","00100","00100"];
+for (const [k,w,h] of [["3x5",3,5],["4x6",4,6],["5x7",5,7]]) {
+ const C=FONTS[k].c;
+ C[">"]= k==="3x5"?["100","010","001","010","100"]:k==="4x6"?["1000","0100","0010","0001","0010","0100"]:["10000","01000","00100","00010","00100","01000","10000"];
+ C["<"]= k==="3x5"?["001","010","100","010","001"]:k==="4x6"?["0001","0010","0100","1000","0100","0010"]:["00001","00010","00100","01000","00100","00010","00001"];
+ C["+"]= k==="3x5"?["000","010","111","010","000"]:k==="4x6"?["0000","0010","1111","0010","0000","0000"]:["00000","00100","00100","11111","00100","00100","00000"];
+ C["_"]=Array(h).fill("0".repeat(w)); C["_"][h-1]="1".repeat(w);
+ C["="]=Array(h).fill("0".repeat(w)); if(h>3){C["="][1]="1".repeat(w);C["="][3]="1".repeat(w)}
+ C["!"]=Array(h).fill("0".repeat(w)); for(let y=0;y<h-2;y++) C["!"][y]="0".repeat(Math.floor(w/2))+"1"+"0".repeat(w-Math.floor(w/2)-1); C["!"][h-1]=C["!"][0];
+}
+function generateFont(name,w,h){const src=FONTS["5x7"].c,c={};for(const [ch,rows] of Object.entries(src)){c[ch]=Array.from({length:h},(_,y)=>{const sy=Math.min(6,Math.floor(y*7/h));return Array.from({length:w},(_,x)=>rows[sy][Math.min(4,Math.floor(x*5/w))]).join("")})}FONTS[name]={w,h,s:1,c}}
+for(const [name,w,h] of [["6x8",6,8],["7x9",7,9],["8x12",8,12],["10x14",10,14],["12x16",12,16],["14x20",14,20]])generateFont(name,w,h);
+const $=id=>document.getElementById(id), channels=["R1","R2","F2","F4","R7","R8","L6","L7"], callsignPool=['KillianFPV','MARV_FPV','bajo','CrysonFPV','Yuki','wesleyfpv','ArvinFPV','king_joshy','Timmyfpvv','AyyyKayyyFPV','Minus_One','Feno','ChirpFPV','Mathou','Levio','mojofpv','Scorb','ReeFPV','GoProMaster','Stachu','Drone-Kid','ReikonFPV','TilenFPV','aviv_fpv','MAXDAX','PDFPV','gabruzzz','Minjae_','Relax_Max','FPV_Lukey','TheChef','KidCe','VioFly','Benji_FPV','holzii_fpv','Goblin-Fpv','AbdulFattah666','Propcounter','BlueWolf','Falbala','Word1N','Receiver','n_N','Rego','Chuck_Borris','XO-XO','Joop_fpv','SkyRyll','AsulinFPV','FloFPV','Nivz','Crush','St0rMFPV','HyPeDEvO','JRacer','Heynen','vtx-slayer','EmiFPV','BlueSmash','ShepherdFPV','rumpelst1lzk1n','RcSteve','RageQuit','mzr','KEMFPV','Kirek','ManualFPV','Kwadastrophe','RetryWin','Wikiwix','Keepy','Sir_CrashaLot','SanderPuh','kimi_lhy','GiantRabbit','Biggest_Chen','PandaFPV_','TimurFPV','8enjoe','xgg_fpv','BoltyFPV','tisha','FPVRossco','DanbusterFPV','Emis_fpv','Bewoo','ZeLaus','Gagin','St0rM','D3C4Y','BuckZap','Jbox','el_barto','Trinx','Eidwallfpv','Pastis','CrazyIvanFPV','NateYT','bear_racer','thorrfpv','Pino','SmallYuki','RedRacerFPV'], names=callsignPool.slice(0,8);
+const STORAGE_KEY='fpv-race-wled-display-v2';
+const STATIC_SETTINGS=['advancedMode','displayPreset','w','h','pitch','font','zoom','pixelMode','gap','allColor','titleText','round','heat','headerFont','headerPixelMode','headerStyle','headerFrame','headerAlign','headerOffsetX','headerOffsetY','headerPaddingX','headerPaddingY','headerFrameThickness','headerColor','dividerColor','backgroundColor','columns','channelWidth','pilotWidth','channelGap','nameGap','dividerWidth','leftMargin','rightMargin','headerGap','previewScale','serialBaud','transport','wledUrl','schemaId','displayBrightness','backgroundEffect','liveSend'];
+
+function makeInputs(){
+  const g=$('pilotGrid');
+  for(let i=0;i<8;i++){
+    const channel=document.createElement('label'),pilot=document.createElement('label');
+    channel.innerHTML=`Channel ${i+1}<span class="fieldline"><input id="ch${i}" value="${channels[i]}"><input id="cc${i}" type="color" value="#ffffff" aria-label="Channel ${i+1} color"></span>`;
+    pilot.innerHTML=`Pilot ${i+1}<span class="pilotline"><input id="pn${i}" value="${names[i]}"><input id="pc${i}" type="color" value="#ffffff" aria-label="Pilot ${i+1} color"><select id="pe${i}" class="pilot-effect advanced-only" aria-label="Pilot ${i+1} text effect"><option value="none">Normal</option><option value="rainbow">Rainbow</option><option value="glitter">Sparkle</option></select></span>`;
+    g.append(channel,pilot);
+  }
+}
+makeInputs();
+
+function settingIds(){return [...STATIC_SETTINGS,...Array.from({length:8},(_,i)=>[`ch${i}`,`cc${i}`,`pn${i}`,`pc${i}`,`pe${i}`]).flat()]}
+function saveSettings(){try{const data={};for(const id of settingIds()){const el=$(id);if(el)data[id]=el.type==='checkbox'?el.checked:el.value}localStorage.setItem(STORAGE_KEY,JSON.stringify(data))}catch{}}
+function loadSettings(){try{const data=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');for(let i=0;i<8;i++)if(!(`pe${i}` in data)&&data[`rb${i}`])data[`pe${i}`]='rainbow';for(const [id,value] of Object.entries(data)){const el=$(id);if(!el)continue;if(el.type==='checkbox')el.checked=!!value;else el.value=value}}catch{}}
+loadSettings();
+function syncAdvancedMode(){document.body.classList.toggle('advanced-mode',$('advancedMode').checked)}
+syncAdvancedMode();
+
+function fit(text,length){return (text||'').toUpperCase().slice(0,Math.max(0,length)).padEnd(Math.max(0,length),' ')}
+function headerText(){return `${$('titleText').value} ${$('round').value} ${$('heat').value}`.trim().toUpperCase()}
+function makeSpan(start,length,color,effect='none',seed=0){return {start,length:Math.max(0,length),color,effect,seed}}
+function shiftSpans(spans,offset){return spans.map(span=>({...span,start:span.start+offset}))}
+function entryLine(index,width){
+  const cw=Math.max(0,+$('channelWidth').value||0),pw=Math.max(0,+$('pilotWidth').value||0),cg=Math.max(0,+$('channelGap').value||0);
+  const pilotStart=cw+cg,text=fit(fit($(`ch${index}`).value,cw)+' '.repeat(cg)+fit($(`pn${index}`).value,pw),width);
+  const effect=$('advancedMode').checked?$(`pe${index}`).value:'none';
+  return {text,spans:[makeSpan(0,Math.min(cw,width),$(`cc${index}`).value),makeSpan(pilotStart,Math.min(pw,Math.max(0,width-pilotStart)),$(`pc${index}`).value,effect,index*47)]};
+}
+function styledBodyLines(chars){
+  const output=[];
+  const ng=Math.max(0,+$('nameGap').value||0),dw=Math.max(1,+$('dividerWidth').value||1),lm=Math.max(0,+$('leftMargin').value||0),rm=Math.max(0,+$('rightMargin').value||0);
+  if(+$('columns').value===2){
+    const separator=' '.repeat(ng)+'|'.repeat(dw)+' '.repeat(ng),usable=Math.max(1,chars-lm-rm-separator.length),leftWidth=Math.floor(usable/2),rightWidth=usable-leftWidth;
+    for(let row=0;row<4;row++){
+      const left=entryLine(row*2,leftWidth),right=entryLine(row*2+1,rightWidth),dividerStart=lm+leftWidth+ng;
+      output.push({text:fit(' '.repeat(lm)+left.text+separator+right.text+' '.repeat(rm),chars),spans:[...shiftSpans(left.spans,lm),makeSpan(dividerStart,dw,$('dividerColor').value),...shiftSpans(right.spans,lm+leftWidth+separator.length)]});
+    }
+  }else{
+    const width=Math.max(1,chars-lm-rm);
+    for(let i=0;i<8;i++){const entry=entryLine(i,width);output.push({text:fit(' '.repeat(lm)+entry.text+' '.repeat(rm),chars),spans:shiftSpans(entry.spans,lm)})}
+  }
+  return output;
+}
+function shuffledPilots(){const pool=[...callsignPool];for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}return pool.slice(0,8)}
+function setPilotNames(list){list.forEach((value,index)=>$(`pn${index}`).value=value||'');saveSettings();render()}
+function applyAllColor(color){$('headerColor').value=color;$('dividerColor').value=color;for(let i=0;i<8;i++){$(`cc${i}`).value=color;$(`pc${i}`).value=color}}
+function applyBandColors(){const colors={R:'#ff453a',F:'#0a84ff',L:'#ffd60a',E:'#30d158'};for(let i=0;i<8;i++)$(`cc${i}`).value=colors[$(`ch${i}`).value.trim().toUpperCase()[0]]||'#ffffff';saveSettings();render()}
+
+let effectPhase=0,glitterTick=0,serialPort=null,serialReader=null,usbReaderTask=null,usbTextTail='',usbWriteChain=Promise.resolve(),serialOpenBaud=0,wirelessSocket=null,wirelessWaiters=new Map(),usbWaiters=new Map(),liveDebounce=0,outputActive=false,sequence=0,activeSchema=null;
+const sessionId=Math.floor(Math.random()*0xffffffff).toString(16).padStart(8,'0');
+const PROTOCOL_VERSION=1,COMMAND_TIMEOUT_MS=2500;
+const wait=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+function setUsbStatus(message,kind=''){const el=$('usbStatus');el.textContent=message;el.className='hint '+kind}
+
+function styleAt(row,column){return row.spans.find(span=>column>=span.start&&column<span.start+span.length)}
+function rainbowColor(span,column,glyphX,glyphY){return `hsl(${(effectPhase+span.seed+column*19+glyphX*7+glyphY*4)%360} 100% 60%)`}
+function glitterColor(span,column,glyphX,glyphY){const hash=(column*71+glyphX*37+glyphY*17+span.seed*13+glitterTick*29)%211;return hash===0?rainbowColor(span,column,glyphX,glyphY):'#ffffff'}
+function styledPixelColor(span,column,glyphX,glyphY){if(span?.effect==='rainbow')return rainbowColor(span,column,glyphX,glyphY);if(span?.effect==='glitter')return glitterColor(span,column,glyphX,glyphY);return span?.color||'#ffffff'}
+function drawLogicalBand(ctx,y,height,color,W,H,z){if(y>=H||y+height<=0)return;ctx.fillStyle=color;ctx.fillRect(0,Math.max(0,y)*z,W*z,Math.max(0,Math.min(H,y+height)-Math.max(0,y))*z)}
+function drawLogicalRect(ctx,x,y,width,height,color,W,H,z){const x0=Math.max(0,x),y0=Math.max(0,y),x1=Math.min(W,x+width),y1=Math.min(H,y+height);if(x1<=x0||y1<=y0)return;ctx.fillStyle=color;ctx.fillRect(x0*z,y0*z,(x1-x0)*z,(y1-y0)*z)}
+function applyPreviewScale(){const scale=Math.max(25,Math.min(400,+$('previewScale').value||150)),canvas=$('c');$('previewScaleValue').textContent=`${scale}%`;canvas.style.width=`${canvas.width*scale/100}px`;canvas.style.height=`${canvas.height*scale/100}px`}
+function drawStyledLine(ctx,row,y0,font,unit,W,H,z,x0=0){
+  let overflow=false;
+  for(let column=0;column<row.text.length;column++){
+    const glyph=font.c[row.text[column]]||font.c['?'],span=styleAt(row,column);
+    for(let gy=0;gy<font.h;gy++)for(let gx=0;gx<font.w;gx++)if(glyph[gy][gx]==='1'){
+      const px=x0+column*(font.w+font.s)*unit+gx*unit,py=y0+gy*unit;
+      if(px>=0&&py>=0&&px<W&&py<H){const inset=Math.max(1,Math.floor(z*.12));ctx.fillStyle=styledPixelColor(span,column,gx,gy);ctx.fillRect(px*z+inset,py*z+inset,Math.max(1,z*unit-2*inset),Math.max(1,z*unit-2*inset))}else overflow=true;
+    }
+  }
+  for(const span of row.spans.filter(candidate=>candidate.effect==='glitter'))if((glitterTick+span.seed)%37===0){const column=span.start+((glitterTick+span.seed)%Math.max(1,span.length)),px=x0+column*(font.w+font.s)*unit+(font.w+font.s-1)*unit,py=y0+((glitterTick+span.seed*3)%font.h)*unit;if(px>=0&&py>=0&&px<W&&py<H){const inset=Math.max(1,Math.floor(z*.12));ctx.fillStyle=rainbowColor(span,column,font.w,py-y0);ctx.fillRect(px*z+inset,py*z+inset,Math.max(1,z*unit-2*inset),Math.max(1,z*unit-2*inset))}}
+  return overflow;
+}
+function headerTextMetrics(text,font,unit){return {width:text?text.length*(font.w+font.s)*unit-font.s*unit:0,height:font.h*unit}}
+function drawHeaderFrame(ctx,frame,bounds,color,thickness,W,H,z){
+  if(frame==='none'||bounds.width<=0)return;
+  const {left,right,top,bottom}=bounds,t=Math.max(1,thickness),height=bottom-top+1,width=right-left+1,cap=Math.max(2*t,Math.min(5,Math.floor(width/3))),corner=Math.max(2*t,Math.min(4,Math.floor(height/2)));
+  const rect=(x,y,w,h)=>drawLogicalRect(ctx,x,y,w,h,color,W,H,z);
+  const verticals=()=>{rect(left,top,t,height);rect(right-t+1,top,t,height)};
+  const rails=()=>{rect(left,top,width,t);rect(left,bottom-t+1,width,t)};
+  if(frame==='sides')verticals();
+  if(frame==='brackets'){verticals();rect(left,top,cap,t);rect(left,bottom-t+1,cap,t);rect(right-cap+1,top,cap,t);rect(right-cap+1,bottom-t+1,cap,t)}
+  if(frame==='corners'){rect(left,top,cap,t);rect(left,top,t,corner);rect(right-cap+1,top,cap,t);rect(right-t+1,top,t,corner);rect(left,bottom-t+1,cap,t);rect(left,bottom-corner+1,t,corner);rect(right-cap+1,bottom-t+1,cap,t);rect(right-t+1,bottom-corner+1,t,corner)}
+  if(frame==='box'){verticals();rails()}
+  if(frame==='rails')rails();
+  if(frame==='inward'||frame==='outward'){
+    const middle=Math.floor((top+bottom)/2),radius=Math.max(2,Math.min(4,Math.floor(height/2))),direction=frame==='inward'?1:-1;
+    for(let d=-radius;d<=radius;d++){const step=radius-Math.abs(d),leftX=left+(direction===1?step:radius-step)*t,rightX=right-t-(direction===1?step:radius-step)*t;rect(leftX,middle+d,t,t);rect(rightX,middle+d,t,t)}
+  }
+  if(frame.startsWith('left-')||frame.startsWith('right-')){
+    const middle=Math.floor((top+bottom)/2),radius=Math.max(2,Math.min(4,Math.floor(height/2))),pointsRight=frame.startsWith('right-'),count=frame.endsWith('double')?2:1;
+    for(let chevron=0;chevron<count;chevron++)for(let d=-radius;d<=radius;d++){
+      const step=radius-Math.abs(d),base=left+chevron*(radius+2)*t,x=base+(pointsRight?step:radius-step)*t;
+      rect(x,middle+d,t,t);
+    }
+  }
+}
+function drawHeader(ctx,bodyFont,W,H,z){
+  const text=headerText(),fontName=$('headerFont').value==='same'?$('font').value:$('headerFont').value,font=FONTS[fontName]||bodyFont,unit=Math.max(1,+$('headerPixelMode').value||1),metrics=headerTextMetrics(text,font,unit),textWidth=metrics.width,textHeight=metrics.height,offsetX=+$('headerOffsetX').value||0,offsetY=+$('headerOffsetY').value||0,align=$('headerAlign').value,frame=$('headerFrame').value,color=$('headerColor').value,background=$('backgroundColor').value,paddingX=Math.max(0,+$('headerPaddingX').value||0),paddingY=Math.max(0,+$('headerPaddingY').value||0),thickness=Math.max(1,+$('headerFrameThickness').value||1),style=$('headerStyle').value;
+  let textX=align==='center'?Math.floor((W-textWidth)/2)+offsetX:align==='right'?W-textWidth+offsetX:offsetX;
+  const topReserve=Math.max(style==='double'?1:0,frame!=='none'?paddingY+thickness:0),textY=topReserve+offsetY,chevronRadius=Math.max(2,Math.min(4,Math.floor((textHeight+paddingY*2+thickness*2)/2))),isChevron=frame==='inward'||frame==='outward'||frame.startsWith('left-')||frame.startsWith('right-'),chevronCount=frame.endsWith('double')?2:1,frameExtentX=isChevron?paddingX+(chevronRadius+1)*thickness*chevronCount:paddingX+thickness;
+  const bounds={left:textX-frameExtentX,right:textX+textWidth+frameExtentX-1,top:textY-paddingY-thickness,bottom:textY+textHeight+paddingY+thickness-1,width:textWidth+frameExtentX*2};
+  if(style==='bar')drawLogicalRect(ctx,0,textY,W,textHeight,color,W,H,z);
+  if(style==='underline'||style==='double')drawLogicalBand(ctx,textY+textHeight,1,color,W,H,z);
+  if(style==='double')drawLogicalBand(ctx,textY-1,1,color,W,H,z);
+  drawHeaderFrame(ctx,frame,bounds,color,thickness,W,H,z);
+  const row={text,spans:[makeSpan(0,text.length,style==='bar'?background:color)]},overflow=drawStyledLine(ctx,row,textY,font,unit,W,H,z,textX);
+  const styleBottom=(style==='underline'||style==='double')?textY+textHeight:textY+textHeight-1,frameBottom=frame==='none'?-1:bounds.bottom,bottom=Math.max(styleBottom,frameBottom);
+  const frameOverflow=frame!=='none'&&(bounds.left<0||bounds.right>=W||bounds.top<0||bounds.bottom>=H);
+  return {bottom,overflow:overflow||frameOverflow||textX<0||textX+textWidth>W||textY<0||bottom>=H,fontName,font,unit,textY,textHeight};
+}
+function render(previewOnly=false){
+  const W=Math.max(1,+$('w').value||80),H=Math.max(1,+$('h').value||80),z=Math.max(1,+$('zoom').value||5),gap=Math.max(0,+$('gap').value||0),unit=Math.max(1,+$('pixelMode').value||1),pitch=+$('pitch').value||4,font=FONTS[$('font').value],chars=Math.max(1,Math.floor((W+font.s*unit)/((font.w+font.s)*unit))),rows=styledBodyLines(chars);
+  $('generated').textContent=[headerText(),...rows.map(row=>row.text)].join('\n');
+  const canvas=$('c'),ctx=canvas.getContext('2d'),background=$('backgroundColor').value,headerGap=Math.max(0,+$('headerGap').value||0);
+  canvas.width=W*z;canvas.height=H*z;applyPreviewScale();ctx.imageSmoothingEnabled=false;ctx.fillStyle=background;ctx.fillRect(0,0,canvas.width,canvas.height);ctx.strokeStyle='rgba(255,255,255,.055)';for(let y=0;y<H;y++)for(let x=0;x<W;x++)ctx.strokeRect(x*z+.5,y*z+.5,z-1,z-1);
+  const header=drawHeader(ctx,font,W,H,z);let y0=header.bottom+1+headerGap,overflow=header.overflow;
+  rows.forEach(row=>{overflow=drawStyledLine(ctx,row,y0,font,unit,W,H,z)||overflow;y0+=(font.h+gap)*unit});
+  const needed=rows.length?y0-gap*unit:header.bottom+1;
+  $('stats').textContent=`${W}×${H}px • ${(W*pitch).toFixed(0)}×${(H*pitch).toFixed(0)} mm • body ${font.w}×${font.h}, header ${header.fontName} • ${chars} body chars/line • ${needed}/${H}px height`+((overflow||needed>H)?' • ⚠ does not fit':' • ✓ fits');
+  if(!previewOnly)scheduleLiveSend();
+}
+
+function outputReady(){return $('transport').value==='wireless'?wirelessSocket?.readyState===WebSocket.OPEN:!!serialPort?.writable}
+function colorNumber(value){return parseInt((value||'#ffffff').replace('#',''),16)&0xffffff}
+function fnv1a(text){let hash=0x811c9dc5;for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,0x01000193)}return (hash>>>0).toString(16).padStart(8,'0')}
+function schemaGeometry(){
+  const W=Math.max(1,+$('w').value||80),H=Math.max(1,+$('h').value||80),body=FONTS[$('font').value],headerFontName=$('headerFont').value==='same'?$('font').value:$('headerFont').value,headerFont=FONTS[headerFontName]||body,bodyScale=Math.max(1,+$('pixelMode').value||1),headerScale=Math.max(1,+$('headerPixelMode').value||1),text=headerText(),metrics=headerTextMetrics(text,headerFont,headerScale),style=$('headerStyle').value,frame=$('headerFrame').value,padX=Math.max(0,+$('headerPaddingX').value||0),padY=Math.max(0,+$('headerPaddingY').value||0),thickness=Math.max(1,+$('headerFrameThickness').value||1),offsetX=+$('headerOffsetX').value||0,offsetY=+$('headerOffsetY').value||0;
+  const textX=$('headerAlign').value==='center'?Math.floor((W-metrics.width)/2)+offsetX:$('headerAlign').value==='right'?W-metrics.width+offsetX:offsetX,topReserve=Math.max(style==='double'?1:0,frame!=='none'?padY+thickness:0),textY=topReserve+offsetY,radius=Math.max(2,Math.min(4,Math.floor((metrics.height+padY*2+thickness*2)/2))),isChevron=frame==='inward'||frame==='outward'||frame.startsWith('left-')||frame.startsWith('right-'),count=frame.endsWith('double')?2:1,extent=isChevron?padX+(radius+1)*thickness*count:padX+thickness,bounds={left:textX-extent,right:textX+metrics.width+extent-1,top:textY-padY-thickness,bottom:textY+metrics.height+padY+thickness-1};
+  const styleBottom=style==='underline'||style==='double'?textY+metrics.height:textY+metrics.height-1,bottom=Math.max(styleBottom,frame==='none'?-1:bounds.bottom);
+  return {W,H,body,headerFont,bodyScale,headerScale,offsetX,textX,textY,metrics,style,frame,padX,padY,thickness,radius,bounds,bodyY:bottom+1+Math.max(0,+$('headerGap').value||0)};
+}
+function buildLayoutSchema(){
+  const g=schemaGeometry(),nodes=[],white=0xffffff,headerBind='header',decorBind='headerDecor',addRect=(id,x,y,w,h,bind='',color=white)=>nodes.push({id,type:'rect',x,y,w,h,color,bind,filled:true}),addLine=(id,x,y,x2,y2,bind='',color=white,t=g.thickness)=>nodes.push({id,type:'line',x,y,x2,y2,color,bind,thickness:t}),addPoly=(id,points,bind='')=>nodes.push({id,type:'polyline',points,color:white,bind,thickness:g.thickness});
+  const headerNode={id:'header',type:'text',bind:headerBind,x:g.offsetX,y:g.textY,w:g.W,h:g.metrics.height,fw:g.headerFont.w,fh:g.headerFont.h,scale:g.headerScale,align:$('headerAlign').value,color:g.style==='bar'?colorNumber($('backgroundColor').value):white};
+  if(g.style==='bar')addRect('headerBar',0,g.textY,g.W,g.metrics.height,decorBind);
+  nodes.push(headerNode);
+  if(g.style==='underline'||g.style==='double')addLine('headerUnder',0,g.textY+g.metrics.height,g.W-1,g.textY+g.metrics.height,decorBind);
+  if(g.style==='double')addLine('headerOver',0,g.textY-1,g.W-1,g.textY-1,decorBind);
+  const b=g.bounds,frame=g.frame,cap=Math.max(2*g.thickness,Math.min(5,Math.floor((b.right-b.left+1)/3))),corner=Math.max(2*g.thickness,Math.min(4,Math.floor((b.bottom-b.top+1)/2)));
+  if(frame==='sides'||frame==='brackets'||frame==='corners'||frame==='box'){addLine('frameL',b.left,b.top,b.left,b.bottom,decorBind);addLine('frameR',b.right,b.top,b.right,b.bottom,decorBind)}
+  if(frame==='box'||frame==='rails'){addLine('frameT',b.left,b.top,b.right,b.top,decorBind);addLine('frameB',b.left,b.bottom,b.right,b.bottom,decorBind)}
+  if(frame==='brackets'){addLine('brLT',b.left,b.top,b.left+cap,b.top,decorBind);addLine('brLB',b.left,b.bottom,b.left+cap,b.bottom,decorBind);addLine('brRT',b.right-cap,b.top,b.right,b.top,decorBind);addLine('brRB',b.right-cap,b.bottom,b.right,b.bottom,decorBind)}
+  if(frame==='corners'){addLine('coLT',b.left,b.top,b.left+cap,b.top,decorBind);addLine('coLB',b.left,b.bottom,b.left+cap,b.bottom,decorBind);addLine('coRT',b.right-cap,b.top,b.right,b.top,decorBind);addLine('coRB',b.right-cap,b.bottom,b.right,b.bottom,decorBind)}
+  const chevron=(id,cx,pointsRight)=>addPoly(id,pointsRight?[[cx-g.radius,b.top],[cx,b.top+g.radius],[cx-g.radius,b.top+g.radius*2]]:[[cx+g.radius,b.top],[cx,b.top+g.radius],[cx+g.radius,b.top+g.radius*2]],decorBind);
+  if(frame==='inward'||frame==='outward'){chevron('chevL',b.left+g.radius,frame==='inward');chevron('chevR',b.right-g.radius,frame==='outward')}
+  if(frame.startsWith('left-')||frame.startsWith('right-'))for(let i=0;i<(frame.endsWith('double')?2:1);i++)chevron(`chev${i}`,b.left+g.radius+i*(g.radius+2)*g.thickness,frame.startsWith('right-'));
+  const advance=(g.body.w+g.body.s)*g.bodyScale,gap=Math.max(0,+$('gap').value||0),chars=Math.max(1,Math.floor((g.W+g.body.s*g.bodyScale)/advance)),lm=Math.max(0,+$('leftMargin').value||0),rm=Math.max(0,+$('rightMargin').value||0),cw=Math.max(0,+$('channelWidth').value||0),pw=Math.max(0,+$('pilotWidth').value||0),cg=Math.max(0,+$('channelGap').value||0),columns=+$('columns').value;
+  const addEntry=(index,charX,charWidth,y)=>{nodes.push({id:`ch${index}`,type:'text',bind:`ch${index}`,x:charX*advance,y,w:Math.min(cw,charWidth)*advance,h:g.body.h*g.bodyScale,fw:g.body.w,fh:g.body.h,scale:g.bodyScale,align:'left',color:white});nodes.push({id:`pn${index}`,type:'text',bind:`pn${index}`,x:(charX+cw+cg)*advance,y,w:Math.min(pw,Math.max(0,charWidth-cw-cg))*advance,h:g.body.h*g.bodyScale,fw:g.body.w,fh:g.body.h,scale:g.bodyScale,align:'left',color:white})};
+  if(columns===2){const ng=Math.max(0,+$('nameGap').value||0),dw=Math.max(1,+$('dividerWidth').value||1),usable=Math.max(1,chars-lm-rm-ng*2-dw),leftWidth=Math.floor(usable/2),rightWidth=usable-leftWidth;for(let row=0;row<4;row++){const y=g.bodyY+row*(g.body.h+gap)*g.bodyScale;addEntry(row*2,lm,leftWidth,y);addEntry(row*2+1,lm+leftWidth+ng+dw+ng,rightWidth,y)}addRect('divider',(lm+leftWidth+ng)*advance,g.bodyY,dw*g.bodyScale,4*(g.body.h+gap)*g.bodyScale-gap*g.bodyScale,'divider')}
+  else for(let i=0;i<8;i++)addEntry(i,lm,Math.max(1,chars-lm-rm),g.bodyY+i*(g.body.h+gap)*g.bodyScale);
+  const base={format:'wled-fpv-layout',protocol:PROTOCOL_VERSION,schemaId:($('schemaId').value.trim()||'fpv-race-80x80-v1').slice(0,24),revision:1,canvas:{width:g.W,height:g.H,background:colorNumber($('backgroundColor').value),fps:30},nodes};
+  return {...base,schemaHash:fnv1a(JSON.stringify(base))};
+}
+function buildDisplayState(){const values=[{key:'header',text:headerText(),color:colorNumber($('headerStyle').value==='bar'?$('backgroundColor').value:$('headerColor').value),effect:'none'},{key:'headerDecor',text:'',color:colorNumber($('headerColor').value),effect:'none'},{key:'divider',text:'',color:colorNumber($('dividerColor').value),effect:'none'}];for(let i=0;i<8;i++){values.push({key:`ch${i}`,text:$(`ch${i}`).value.toUpperCase(),color:colorNumber($(`cc${i}`).value),effect:'none'});values.push({key:`pn${i}`,text:$(`pn${i}`).value.toUpperCase(),color:colorNumber($(`pc${i}`).value),effect:$(`pe${i}`).value})}return values}
+function commandEnvelope(op,fields={}){return {fpv:{p:PROTOCOL_VERSION,sid:sessionId,seq:++sequence,op,...fields}}}
+function settleReply(reply){const message=reply?.fpv;if(!message)return;const map=$('transport').value==='wireless'?wirelessWaiters:usbWaiters,waiter=map.get(message.seq);if(waiter){clearTimeout(waiter.timer);map.delete(message.seq);message.ok?waiter.resolve(message):waiter.reject(new Error(message.code||'WLED rejected the command'))}}
+async function sendCommand(op,fields={},timeout=COMMAND_TIMEOUT_MS){const envelope=commandEnvelope(op,fields),message=envelope.fpv,payload=JSON.stringify(envelope),wireless=$('transport').value==='wireless',map=wireless?wirelessWaiters:usbWaiters,attempts=wireless?1:3;let lastError;for(let attempt=1;attempt<=attempts;attempt++){try{return await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{map.delete(message.seq);reject(new Error(`${op} timed out`))},timeout);map.set(message.seq,{resolve,reject,timer});if(wireless){if(!wirelessSocket||wirelessSocket.readyState!==WebSocket.OPEN){clearTimeout(timer);map.delete(message.seq);reject(new Error('Wireless WLED is not connected'));return}wirelessSocket.send(payload)}else writeUsbText(payload+'\n').catch(error=>{clearTimeout(timer);map.delete(message.seq);reject(error)})})}catch(error){lastError=error;if(attempt<attempts)await wait(80)}}throw lastError}
+async function connectWireless(){const raw=$('wledUrl').value.trim();if(!raw){setUsbStatus('Enter the WLED URL first.','error');return}stopOutput('');if(wirelessSocket)wirelessSocket.close();try{const url=new URL(raw);url.protocol=url.protocol==='https:'?'wss:':'ws:';url.pathname='/fpv/ws';url.search='';wirelessSocket=new WebSocket(url);wirelessSocket.onmessage=event=>{try{settleReply(JSON.parse(event.data))}catch{}};wirelessSocket.onclose=()=>{outputActive=false;activeSchema=null};await new Promise((resolve,reject)=>{wirelessSocket.onopen=resolve;wirelessSocket.onerror=()=>reject(new Error('WebSocket connection failed'))});await finishConnect(url.host)}catch(error){wirelessSocket=null;setUsbStatus(`Wireless connection failed: ${error.message}`,'error')}}
+async function connectUsb(){if(!('serial' in navigator)){setUsbStatus('Web Serial is unavailable. Use Chrome or Edge from localhost.','error');return}stopOutput('');$('connectOutput').disabled=true;try{const baud=+$('serialBaud').value;if(serialPort?.readable||serialPort?.writable)await closeUsbPort(false);if(!serialPort){const known=await navigator.serial.getPorts();serialPort=known.length===1?known[0]:await navigator.serial.requestPort()}await serialPort.open({baudRate:baud});serialOpenBaud=baud;if(serialPort.setSignals)await serialPort.setSignals({dataTerminalReady:false,requestToSend:false}).catch(()=>{});startUsbReader();let reply,lastError;for(let attempt=0;attempt<8;attempt++){try{reply=await sendCommand('hello',{},800);break}catch(error){lastError=error;await wait(150)}}if(!reply)throw lastError||new Error('FPV module did not answer');await finishConnect('USB serial')}catch(error){await closeUsbPort(false);setUsbStatus(`USB connection failed: ${error.message}`,'error')}finally{$('connectOutput').disabled=false}}
+async function finishConnect(destination){$('connectOutput').textContent='Reconnect output';saveSettings();const schema=buildLayoutSchema();try{await sendCommand('use',{schema:schema.schemaId,hash:schema.schemaHash});activeSchema=schema;setUsbStatus(`${destination} connected. Schema ${schema.schemaId} is ready.`,'ok');if($('liveSend').checked)await startOutput()}catch(error){activeSchema=null;setUsbStatus(`${destination} connected, but this layout is not installed (${error.message}). Click Install current schema.`,'error')}}
+function startUsbReader(){if(usbReaderTask||!serialPort?.readable)return;const port=serialPort,decoder=new TextDecoder();usbReaderTask=(async()=>{const reader=port.readable.getReader();serialReader=reader;try{while(true){const {value,done}=await reader.read();if(done)break;usbTextTail+=decoder.decode(value,{stream:true});const lines=usbTextTail.split(/\r?\n/);usbTextTail=lines.pop()||'';for(const line of lines){const start=line.indexOf('{"fpv"');if(start>=0)try{settleReply(JSON.parse(line.slice(start)))}catch{}}}}catch(error){for(const waiter of usbWaiters.values()){clearTimeout(waiter.timer);waiter.reject(error)}usbWaiters.clear()}finally{if(serialReader===reader)serialReader=null;reader.releaseLock();usbReaderTask=null}})()}
+async function closeUsbPort(forget=true){const port=serialPort;if(serialReader)await serialReader.cancel().catch(()=>{});if(usbReaderTask)await usbReaderTask.catch(()=>{});await usbWriteChain.catch(()=>{});if(port&&(port.readable||port.writable))await port.close().catch(()=>{});for(const waiter of usbWaiters.values()){clearTimeout(waiter.timer);waiter.reject(new Error('USB session closed'))}usbWaiters.clear();usbTextTail='';serialOpenBaud=0;usbWriteChain=Promise.resolve();if(forget)serialPort=null}
+async function writeUsbText(text){if(!serialPort?.writable)throw new Error('USB serial port is not connected');const bytes=new TextEncoder().encode(text),port=serialPort;usbWriteChain=usbWriteChain.catch(()=>{}).then(async()=>{const writer=port.writable.getWriter();try{await writer.write(bytes)}finally{writer.releaseLock()}});return usbWriteChain}
+async function installCurrentSchema(){if(!outputReady()){setUsbStatus('Connect WLED before installing a schema.','error');return}const button=$('installSchema'),schema=buildLayoutSchema();button.disabled=true;try{setUsbStatus(`Installing ${schema.schemaId}: 0/${schema.nodes.length} nodes…`,'ok');await sendCommand('schema.begin',{schema:schema.schemaId,hash:schema.schemaHash,revision:schema.revision,width:schema.canvas.width,height:schema.canvas.height,background:schema.canvas.background,fps:schema.canvas.fps});for(let i=0;i<schema.nodes.length;i++){await sendCommand('schema.node',{node:schema.nodes[i]});setUsbStatus(`Installing ${schema.schemaId}: ${i+1}/${schema.nodes.length} nodes…`,'ok')}await sendCommand('schema.commit',{activate:true},5000);activeSchema=schema;setUsbStatus(`Schema ${schema.schemaId} installed (${schema.nodes.length} nodes).`,'ok');if($('liveSend').checked)await startOutput()}catch(error){await sendCommand('schema.abort').catch(()=>{});setUsbStatus(`Schema installation failed: ${error.message}`,'error')}finally{button.disabled=false}}
+function exportCurrentSchema(){const schema=buildLayoutSchema(),blob=new Blob([JSON.stringify(schema,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`${schema.schemaId}-${schema.schemaHash}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setUsbStatus(`Exported schema ${schema.schemaId} (${schema.schemaHash}).`,'ok')}
+function stopOutput(message='Live output disabled. No display data is being sent.'){outputActive=false;if(message)setUsbStatus(message)}
+async function deactivateOutput(){if(outputReady()&&outputActive)await sendCommand('activate',{on:false},1500).catch(()=>{});stopOutput('Live output disabled. The normal WLED effect is active again.')}
+async function startOutput(){if(!$('liveSend').checked||!outputReady())return;const schema=buildLayoutSchema();if(!activeSchema||activeSchema.schemaId!==schema.schemaId||activeSchema.schemaHash!==schema.schemaHash){outputActive=false;setUsbStatus('The layout changed. Install the current schema before enabling live output.','error');return}try{await sendCommand('state',{schema:schema.schemaId,hash:schema.schemaHash,replace:true,brightness:+$('displayBrightness').value,backgroundEffect:+$('backgroundEffect').value,values:buildDisplayState()},4000);outputActive=true;setUsbStatus(`Live output active via ${$('transport').value==='wireless'?'WebSocket':'USB'} at ${$('displayBrightness').value}% brightness; background effect ${$('backgroundEffect').value}%.`,'ok')}catch(error){outputActive=false;setUsbStatus(`Live update failed: ${error.message}`,'error')}}
+function scheduleLiveSend(){if(!$('liveSend').checked||!outputReady())return;clearTimeout(liveDebounce);liveDebounce=setTimeout(()=>void startOutput(),120)}
+function clearStalePixels(){if($('liveSend').checked)void startOutput();else setUsbStatus('The module clears all 80×80 pixels on every render. Enable live output to redraw.','ok')}
+
+const P={'80x80':[80,80,4],'128x32':[128,32,5],'160x40':[160,40,4],'208x52':[208,52,3.076],'64x32':[64,32,5],'256x32':[256,32,5],'128x64':[128,64,5]};
+function bindRenderControl(id){const el=$(id);if(el)el.oninput=()=>{saveSettings();render()}}
+for(const id of ['w','h','pitch','font','zoom','pixelMode','gap','titleText','round','heat','headerFont','headerPixelMode','headerStyle','headerFrame','headerAlign','headerOffsetX','headerOffsetY','headerPaddingX','headerPaddingY','headerFrameThickness','headerColor','dividerColor','backgroundColor','columns','channelWidth','pilotWidth','channelGap','nameGap','dividerWidth','leftMargin','rightMargin','headerGap',...Array.from({length:8},(_,i)=>[`ch${i}`,`cc${i}`,`pn${i}`,`pc${i}`,`pe${i}`]).flat()])bindRenderControl(id);
+$('previewScale').oninput=()=>{saveSettings();applyPreviewScale()};
+$('advancedMode').onchange=()=>{syncAdvancedMode();saveSettings();render()};
+$('displayBrightness').oninput=()=>{$('displayBrightnessValue').value=`${$('displayBrightness').value}%`;saveSettings();scheduleLiveSend()};
+$('backgroundEffect').oninput=()=>{$('backgroundEffectValue').value=`${$('backgroundEffect').value}%`;saveSettings();scheduleLiveSend()};
+$('displayPreset').onchange=event=>{if(P[event.target.value])[$('w').value,$('h').value,$('pitch').value]=P[event.target.value];saveSettings();render()};
+$('allColor').oninput=()=>{applyAllColor($('allColor').value);saveSettings();render()};
+$('raceband').onclick=()=>{channels.forEach((value,index)=>$(`ch${index}`).value=value);saveSettings();render()};
+$('bandColors').onclick=applyBandColors;
+$('whiteColors').onclick=()=>{$('allColor').value='#ffffff';applyAllColor('#ffffff');saveSettings();render()};
+$('clear').onclick=()=>{for(let i=0;i<8;i++)$(`pn${i}`).value='';saveSettings();render()};
+$('shuffle').onclick=()=>setPilotNames(shuffledPilots());
+$('example').onclick=()=>{setPilotNames(shuffledPilots());channels.forEach((value,index)=>$(`ch${index}`).value=value);$('round').value='Q12';$('heat').value='H22/23';saveSettings();render()};
+$('clearPixels').onclick=clearStalePixels;
+$('connectOutput').onclick=()=>$('transport').value==='wireless'?connectWireless():connectUsb();
+$('installSchema').onclick=()=>void installCurrentSchema();
+$('exportSchema').onclick=exportCurrentSchema;
+$('schemaId').oninput=saveSettings;
+$('transport').onchange=async()=>{stopOutput('');activeSchema=null;if(wirelessSocket){wirelessSocket.close();wirelessSocket=null}if(serialPort)await closeUsbPort();saveSettings();setUsbStatus($('transport').value==='wireless'?'Enter the WLED URL and connect the FPV module WebSocket.':'Connect the ESP32 USB serial port. Live output will start automatically when enabled.')};
+$('liveSend').onchange=()=>{saveSettings();if($('liveSend').checked){if(outputReady())startOutput();else setUsbStatus('Live output enabled. Connect the selected output to start sending.','ok')}else void deactivateOutput()};
+$('serialBaud').onchange=async()=>{saveSettings();if(serialPort){stopOutput();await closeUsbPort(false);setUsbStatus('Baud rate changed. Reconnect USB to apply it.')}};
+$('wledUrl').oninput=saveSettings;
+$('displayBrightnessValue').value=`${$('displayBrightness').value}%`;
+$('backgroundEffectValue').value=`${$('backgroundEffect').value}%`;
+setInterval(()=>{if($('advancedMode').checked&&Array.from({length:8},(_,i)=>$(`pe${i}`).value!=='none').some(Boolean)){effectPhase=(effectPhase+18)%360;glitterTick++;render(true)}},250);
+render();
+</script><script>document.documentElement.lang='en';document.title='FPV Race WLED Display 80×80';</script></body></html>

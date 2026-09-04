@@ -1,0 +1,19 @@
+{
+  "format": "wled-fpv-layout",
+  "protocol": 1,
+  "schemaId": "fpv-race-80x80-basic",
+  "revision": 1,
+  "canvas": {
+    "width": 80,
+    "height": 80,
+    "background": 0,
+    "fps": 30
+  },
+  "nodes": [
+    {"id":"header","type":"text","bind":"header","x":0,"y":0,"w":80,"h":7,"fw":5,"fh":7,"scale":1,"align":"center","color":16777215},
+    {"id":"headerUnder","type":"line","bind":"headerDecor","x":0,"y":7,"x2":79,"y2":7,"thickness":1,"color":16777215},
+    {"id":"ch0","type":"text","bind":"ch0","x":0,"y":14,"w":12,"h":7,"fw":5,"fh":7,"scale":1,"align":"left","color":16777215},
+    {"id":"pn0","type":"text","bind":"pn0","x":18,"y":14,"w":60,"h":7,"fw":5,"fh":7,"scale":1,"align":"left","color":16777215}
+  ],
+  "schemaHash": "basic-v1"
+}
