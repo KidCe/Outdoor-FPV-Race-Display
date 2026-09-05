@@ -156,6 +156,11 @@ private:
   char _configuredHash[HASH_SIZE] = {};
   Scene _scene;
   DisplayState _state;
+  DisplayState _stagedState;
+  uint32_t _stagedTransaction = 0;
+  uint8_t _stagedBrightnessPercent = 50;
+  uint8_t _stagedBackgroundEffectPercent = 0;
+  bool _stagingState = false;
   Renderer _renderer;
   SceneStorage _storage;
   AsyncWebSocket _socket;
@@ -239,44 +244,43 @@ private:
     copyText(reply.message, sizeof(reply.message), message);
   }
 
-  Value* valueFor(const char* key) {
+  Value* valueFor(DisplayState& state, const char* key) {
     if (!key || !key[0]) return nullptr;
-    for (uint8_t i = 0; i < _state.valueCount; i++) if (sameText(_state.values[i].key, key)) return &_state.values[i];
-    if (_state.valueCount >= MAX_VALUES) return nullptr;
-    Value& value = _state.values[_state.valueCount++];
+    for (uint8_t i = 0; i < state.valueCount; i++) if (sameText(state.values[i].key, key)) return &state.values[i];
+    if (state.valueCount >= MAX_VALUES) return nullptr;
+    Value& value = state.values[state.valueCount++];
     copyText(value.key, sizeof(value.key), key);
     return &value;
   }
 
-  void applyValues(JsonArrayConst values, bool replace, CommandReply& reply) {
-    if (replace) memset(&_state, 0, sizeof(_state));
+  bool applyValues(DisplayState& state, JsonArrayConst values, bool replace, CommandReply& reply) {
+    if (replace) memset(&state, 0, sizeof(state));
     for (JsonObjectConst source : values) {
-      Value* value = valueFor(source["key"] | "");
+      Value* value = valueFor(state, source["key"] | "");
       if (!value) {
         setReply(reply, false, "too_many_values");
-        return;
+        return false;
       }
       if (source.containsKey("text")) copyText(value->text, sizeof(value->text), source["text"] | "");
       if (source.containsKey("color")) { value->color = parseColor(source["color"]); value->hasColor = true; }
       if (source.containsKey("effect")) { value->effect = parseEffect(source["effect"] | "none"); value->hasEffect = true; }
       if (source.containsKey("visible")) { value->visible = source["visible"] | true; value->hasVisible = true; }
     }
-    _active = true;
-    strip.trigger();
-    setReply(reply, true, "state_applied");
+    return true;
   }
 
-  void applyDisplayControls(JsonObjectConst command) {
-    if (command.containsKey("brightness")) {
-      _brightnessPercent = constrain(command["brightness"].as<int>(), 0, 100);
-      const uint8_t target = static_cast<uint8_t>((uint16_t(_brightnessPercent) * 255U + 50U) / 100U);
+  void readDisplayControls(JsonObjectConst command, uint8_t& brightnessPercent, uint8_t& backgroundEffectPercent) {
+    if (command.containsKey("brightness")) brightnessPercent = constrain(command["brightness"].as<int>(), 0, 100);
+    if (command.containsKey("backgroundEffect")) backgroundEffectPercent = constrain(command["backgroundEffect"].as<int>(), 0, 25);
+  }
+
+  void applyDisplayControls(uint8_t brightnessPercent, uint8_t backgroundEffectPercent) {
+      _brightnessPercent = brightnessPercent;
+      _backgroundEffectPercent = backgroundEffectPercent;
+      const uint8_t target = static_cast<uint8_t>((uint16_t(brightnessPercent) * 255U + 50U) / 100U);
       bri = target;
       if (target > 0) briLast = target;
       strip.setBrightness(target, true);
-    }
-    if (command.containsKey("backgroundEffect")) {
-      _backgroundEffectPercent = constrain(command["backgroundEffect"].as<int>(), 0, 25);
-    }
   }
 
   void process(JsonObjectConst command, CommandReply& reply) {
@@ -315,6 +319,7 @@ private:
         return;
       }
       memset(&_state, 0, sizeof(_state));
+      _stagingState = false;
       _active = true;
       copyText(_configuredSchema, sizeof(_configuredSchema), _scene.id);
       copyText(_configuredHash, sizeof(_configuredHash), _scene.hash);
@@ -332,8 +337,43 @@ private:
         setReply(reply, false, "schema_hash_mismatch");
         return;
       }
-      applyDisplayControls(command);
-      applyValues(command["values"].as<JsonArrayConst>(), command["replace"] | false, reply);
+      if (command.containsKey("tx")) {
+        const uint32_t transaction = command["tx"] | 0;
+        const bool replace = command["replace"] | false;
+        if (!transaction) { setReply(reply, false, "transaction_required"); return; }
+        if (replace) {
+          memset(&_stagedState, 0, sizeof(_stagedState));
+          _stagedBrightnessPercent = _brightnessPercent;
+          _stagedBackgroundEffectPercent = _backgroundEffectPercent;
+          _stagedTransaction = transaction;
+          _stagingState = true;
+        } else if (!_stagingState || transaction != _stagedTransaction) {
+          setReply(reply, false, "transaction_mismatch");
+          return;
+        }
+        readDisplayControls(command, _stagedBrightnessPercent, _stagedBackgroundEffectPercent);
+        if (!applyValues(_stagedState, command["values"].as<JsonArrayConst>(), false, reply)) return;
+        if (command["commit"] | false) {
+          _state = _stagedState;
+          applyDisplayControls(_stagedBrightnessPercent, _stagedBackgroundEffectPercent);
+          _stagingState = false;
+          _active = true;
+          strip.trigger();
+          setReply(reply, true, "state_committed");
+        } else {
+          setReply(reply, true, "state_staged");
+        }
+        return;
+      }
+      _stagingState = false;
+      uint8_t brightnessPercent = _brightnessPercent;
+      uint8_t backgroundEffectPercent = _backgroundEffectPercent;
+      readDisplayControls(command, brightnessPercent, backgroundEffectPercent);
+      if (!applyValues(_state, command["values"].as<JsonArrayConst>(), command["replace"] | false, reply)) return;
+      applyDisplayControls(brightnessPercent, backgroundEffectPercent);
+      _active = true;
+      strip.trigger();
+      setReply(reply, true, "state_applied");
       return;
     }
     if (!strcmp(operation, "frame.begin")) {
@@ -399,6 +439,7 @@ private:
     }
     if (!strcmp(operation, "activate")) {
       releaseCapture();
+      _stagingState = false;
       _active = command["on"] | false;
       strip.trigger();
       setReply(reply, true, _active ? "activated" : "deactivated");
@@ -407,6 +448,7 @@ private:
     if (!strcmp(operation, "schema.begin")) {
       memset(&_scene, 0, sizeof(_scene));
       memset(&_state, 0, sizeof(_state));
+      _stagingState = false;
       copyText(_scene.id, sizeof(_scene.id), command["schema"] | "");
       copyText(_scene.hash, sizeof(_scene.hash), command["hash"] | "");
       _scene.revision = command["revision"] | 1;
@@ -526,6 +568,7 @@ private:
     if (!parseScene(pDoc->as<JsonObjectConst>(), _scene, error, errorSize)) return false;
     if (!_storage.save(_scene, error, errorSize)) return false;
     memset(&_state, 0, sizeof(_state));
+    _stagingState = false;
     _active = true;
     copyText(_configuredSchema, sizeof(_configuredSchema), _scene.id);
     copyText(_configuredHash, sizeof(_configuredHash), _scene.hash);

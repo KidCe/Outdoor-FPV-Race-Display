@@ -3,6 +3,7 @@
 
 import argparse
 import base64
+import copy
 import json
 import time
 
@@ -162,6 +163,40 @@ def apply_state(client, schema_id, schema_hash, values):
         client.command("state", **fields)
 
 
+def verify_atomic_update(client, schema_id, schema_hash):
+    baseline_values = semantic_values("none")
+    apply_state(client, schema_id, schema_hash, baseline_values)
+    time.sleep(0.2)
+    baseline, _ = capture(client, "output")
+
+    changed_values = copy.deepcopy(baseline_values)
+    changed_values[0]["text"] = "ATOMIC UPDATE"
+    changed_values[10]["text"] = "UPDATED"
+    chunks = [changed_values[offset:offset + 8] for offset in range(0, len(changed_values), 8)]
+    transaction = int(time.time() * 1000) & 0xFFFFFFFF
+    client.command("state", schema=schema_id, hash=schema_hash, tx=transaction,
+                   replace=True, commit=False, brightness=25, backgroundEffect=0,
+                   values=chunks[0])
+    time.sleep(0.2)
+    staged, _ = capture(client, "output")
+    for index, chunk in enumerate(chunks[1:], start=1):
+        client.command("state", schema=schema_id, hash=schema_hash, tx=transaction,
+                       replace=False, commit=index == len(chunks) - 1, values=chunk)
+    time.sleep(0.2)
+    committed, _ = capture(client, "output")
+    result = {
+        "baseline": f"{baseline['checksum']:08x}",
+        "beforeCommit": f"{staged['checksum']:08x}",
+        "afterCommit": f"{committed['checksum']:08x}",
+    }
+    print(json.dumps(result, separators=(",", ":")))
+    if staged["checksum"] != baseline["checksum"]:
+        raise SystemExit("FAIL: panel output changed before the complete state was committed")
+    if committed["checksum"] == baseline["checksum"]:
+        raise SystemExit("FAIL: committed state did not replace the panel output")
+    print("PASS: incomplete state stayed invisible and committed atomically")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=("websocket", "usb"), default="websocket")
@@ -171,6 +206,7 @@ def main():
     parser.add_argument("--schema-file")
     parser.add_argument("--semantic-states", action="store_true")
     parser.add_argument("--semantic-state", choices=SEMANTIC_BINDINGS)
+    parser.add_argument("--atomic-update", action="store_true")
     args = parser.parse_args()
 
     client, close = (websocket_client(args.url) if args.transport == "websocket"
@@ -185,6 +221,9 @@ def main():
         else:
             schema_id, schema_hash = hello["schema"], hello["hash"]
         client.command("use", schema=schema_id, hash=schema_hash)
+        if args.atomic_update:
+            verify_atomic_update(client, schema_id, schema_hash)
+            return
         bindings = (SEMANTIC_BINDINGS if args.semantic_states else
                     (args.semantic_state,) if args.semantic_state else (None,))
         captures = []

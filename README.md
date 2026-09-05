@@ -1,6 +1,6 @@
 # FPV Race WLED Display
 
-An 80×80 FPV race status display for WLED HUB75 builds. The browser UI edits the layout and race data, while the WLED usermod renders text, geometry, rainbow, and subtle glitter effects directly on the ESP32.
+An 80×80 FPV race status display for WLED HUB75 builds. The compact **Race Display Control Desk** keeps LiveTime, the matrix preview, upcoming heats, WLED output, and pixel readback in one race-day WebUI.
 
 **[Open the live 80×80 browser demo](https://kidce.github.io/Outdoor-FPV-Race-Display/)** — no WLED controller or LED matrix is required to experiment with layouts and the preview.
 
@@ -9,12 +9,17 @@ An 80×80 FPV race status display for WLED HUB75 builds. The browser UI edits th
 - Live updates send compact text, color, and effect values instead of a 19.2 KB RGB frame.
 - USB serial and a dedicated WebSocket endpoint use the same versioned protocol.
 - Active output defaults to a fully black background and 50% display brightness. The browser remembers both controls; an optional 1-25% background-effect level retains a deliberately dim WLED animation.
-- Layouts are portable JSON schema files. Install a schema once, then select it by ID and hash.
+- Layouts are portable JSON schema files. Live output automatically installs a changed or missing schema before sending the next state.
 - The renderer uses the WLED matrix buffer and does not allocate an additional 80×80 RGB framebuffer.
 - The final mapped HUB75 output can be read back pixel by pixel over USB or WebSocket. The WebUI reconstructs the captured frame, verifies its checksum, and compares it with the browser preview.
 - The same usermod can be compiled for the classic ESP32 HUB75 wiring and the Waveshare Matrix board target.
 - Rainbow and subtle sparkle effects are available behind the WebUI's discreet, persistent **Special mode** switch, keeping the default race-day interface focused.
 - Animated header arrows communicate race state at a glance: inward arrows for the current heat, upward arrows for a staged heat, right arrows for next up, and double right arrows for the following heat.
+- A versioned LiveTimeQue connector loads the current heat, pilot callsigns, video channels, and frequencies from the reusable FPV Race Event Data v1 snapshot format. The browser keeps the last valid state if a refresh fails.
+- A compact queue verification strip shows Current, Next One, and After That with their pilots and channels. An optional interval cycles the matrix between Current Heat and Next Up while a race is running.
+- Current Heat, Staging Heat, and Next Up have independent semantic appearance presets. Their geometry is compiled into one stable schema, so normal heat, round, pilot, and channel changes do not trigger a schema reinstall.
+- A portable versioned race-day profile stores presets, channel colors, source settings, and output settings, with import/export and migration from the former prototype settings.
+- The frontpage keeps a compact FPV Race WLED Display status bar visible. It reports USB serial versus network WebSocket, whether live output is controlling the display, and the age of the last accepted connector snapshot. After two minutes without new connector data it warns; after ten minutes it marks the display as potentially stale. **Stop & clear display** sends `activate(false)` so the normal WLED fallback effect can resume.
 
 ## Project layout
 
@@ -35,11 +40,11 @@ pio run -e esp32dev_hub75_p4_80x40_fpv
 pio run -e waveshare_p4_80x40_fpv
 ```
 
-Open [web/fpv-race-wled-80x80.html](web/fpv-race-wled-80x80.html) through a local HTTP server in Chrome or Edge. Connect WLED, click **Install current schema** once, then enable **Live output**. The exported schema can also be uploaded under WLED Usermods settings → **Manage layout schemas**.
+Run `npm run web`, then open <http://localhost:4185/> in Chrome or Edge. This is the only browser origin and start command: the runtime proxies connector traffic and starts a neighboring LiveTimeQue checkout automatically when port `4174` is not already served. Set `LIVETIME_QUE_ROOT` for a different checkout or `FPV_CONNECTOR_URL` for an existing connector. Enable **LiveTime source** once to keep the race source synchronized, **Enable output** to keep WLED or USB connected with automatic recovery, and **Live output** to send the selected scene. Missing or changed schemas are installed automatically; rare controls stay inside collapsed sections.
 
 Use **Read displayed pixels** to freeze and inspect the frame currently held by the HUB75 output. For an unattended hardware check, run `python scripts/verify-frame-readback.py --transport websocket` or replace `websocket` with `usb --port COM7`.
 
-The public demo is deployed automatically from the same WebUI file through GitHub Pages. Its preview, layout editor, schema export, and advanced effects work without hardware. USB access requires a compatible Chromium browser; connecting to a local WLED WebSocket from the HTTPS-hosted demo can be restricted by browser mixed-content rules, so the local HTTP version remains the reliable wireless-control option.
+The public demo is deployed automatically from the same WebUI file and its browser modules through GitHub Pages. Its preview, layout editor, schema export, and advanced effects work without hardware. USB access requires a compatible Chromium browser; connecting to a local WLED WebSocket from the HTTPS-hosted demo can be restricted by browser mixed-content rules, so the local HTTP version remains the reliable wireless-control option.
 
 Prebuilt images are in `firmware/`:
 
@@ -50,6 +55,10 @@ Prebuilt images are in `firmware/`:
 Firmware flashing is fixed at 57600 baud because the tested CP210x link dropped out partway through larger images at 115200 baud. The live USB protocol remains at 115200 baud.
 
 Protocol details are in [docs/protocol-v1.md](docs/protocol-v1.md). The canonical usermod source is [wled/usermods/fpv_race_display](wled/usermods/fpv_race_display).
+
+LiveTime/LiveFPV connector setup is documented in [docs/race-event-connector.md](docs/race-event-connector.md).
+
+The deep-module layout and stable-schema invariant are documented in [docs/architecture.md](docs/architecture.md).
 
 ## Upstream and license
 
