@@ -76,6 +76,26 @@ test("Hub connection quality changes do not replace the last trusted race status
   assert.equal(client.getState().snapshot.races[0].status, "running");
 });
 
+test("Hub client rejects a status envelope that contradicts its trusted snapshot", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const client = new RaceDataHubClient({ hubUrl: "http://hub.test", storage: null });
+  client.apply({ type: "snapshot", hubEpoch: "hub-status-test", eventSessionId: snapshot.eventSessionId, streamSequence: 1, snapshotSequence: 1, deliveredAt: snapshot.capturedAt, data: snapshot });
+
+  const accepted = client.apply({
+    type: "status",
+    hubEpoch: "hub-status-test",
+    eventSessionId: snapshot.eventSessionId,
+    streamSequence: 2,
+    deliveredAt: snapshot.capturedAt,
+    data: { connection: "live", source: "LiveFPV", event: snapshot.event.name, quality: "fresh", raceStatus: "complete" }
+  });
+
+  assert.equal(accepted, false);
+  assert.equal(client.getState().raceStatus, "running");
+  assert.equal(client.getState().snapshot.races[0].status, "running");
+  assert.equal(client.getState().needsReset, true);
+});
+
 test("legacy reconciliation preserves a newer live status and accepts a newer result", async () => {
   const baseline = await fixture("snapshot-fresh.json");
   const live = structuredClone(baseline);
@@ -129,4 +149,65 @@ test("legacy reconciliation preserves a newer live status and accepts a newer re
   assert.equal(runtime.getState().connection, "degraded");
   assert.equal(runtime.getState().quality, "degraded");
   runtime.stop();
+});
+
+test("cached live status survives an older HTTP bootstrap during restart", async () => {
+  const baseline = await fixture("snapshot-fresh.json");
+  const cached = structuredClone(baseline);
+  cached.snapshotId = "cached-live";
+  cached.capturedAt = "2026-09-06T10:01:00.000Z";
+  cached.races[0].status = "running";
+  cached.races[0].timing = { ...cached.races[0].timing, state: "running", capturedAt: cached.capturedAt, stoppedAt: null };
+
+  const bootstrap = structuredClone(baseline);
+  bootstrap.snapshotId = "older-http-result";
+  bootstrap.capturedAt = "2026-09-06T10:00:00.000Z";
+  bootstrap.races[0].status = "complete";
+  bootstrap.races[0].timing = { ...bootstrap.races[0].timing, state: "complete", capturedAt: bootstrap.capturedAt, stoppedAt: bootstrap.capturedAt };
+  const storage = {
+    value: JSON.stringify({ snapshot: cached, lastDataAt: Date.parse(cached.capturedAt) }),
+    getItem() { return this.value; },
+    setItem(_key, value) { this.value = value; },
+    removeItem() {}
+  };
+  const adapter = {
+    snapshot: async () => structuredClone(bootstrap),
+    subscribe(_config, handlers) { handlers.open(); return () => {}; }
+  };
+  const runtime = new RaceSourceRuntime({ adapter, storage, now: () => Date.parse("2026-09-06T10:02:00.000Z") });
+  runtime.configure({ connectorUrl: "http://legacy.test", sourceUrl: "https://event.livefpv.com/" });
+
+  await runtime.setEnabled(true);
+
+  assert.equal(runtime.getState().snapshot.races[0].status, "running");
+  runtime.stop();
+});
+
+test("status trust does not cross event sessions when event and heat IDs are reused", async () => {
+  const baseline = await fixture("snapshot-fresh.json");
+  const cached = structuredClone(baseline);
+  cached.eventSessionId = "event-session-old";
+  cached.snapshotId = "old-session-live";
+  cached.capturedAt = "2026-09-06T10:01:00.000Z";
+  cached.races[0].status = "running";
+  cached.races[0].timing = { ...cached.races[0].timing, state: "running", capturedAt: cached.capturedAt, stoppedAt: null };
+  const storage = {
+    value: JSON.stringify({ snapshot: cached, lastDataAt: Date.parse(cached.capturedAt) }),
+    getItem() { return this.value; },
+    setItem(_key, value) { this.value = value; },
+    removeItem() {}
+  };
+  const runtime = new RaceSourceRuntime({ storage, now: () => Date.parse("2026-09-06T10:03:00.000Z") });
+  const nextSession = structuredClone(baseline);
+  nextSession.eventSessionId = "event-session-new";
+  nextSession.snapshotId = "new-session-result";
+  nextSession.capturedAt = "2026-09-06T10:02:00.000Z";
+  nextSession.quality.state = "degraded";
+  nextSession.races[0].status = "complete";
+  nextSession.races[0].timing = { ...nextSession.races[0].timing, state: "complete", capturedAt: nextSession.capturedAt, stoppedAt: nextSession.capturedAt };
+
+  runtime.accept(nextSession, { origin: "reconciliation" });
+
+  assert.equal(runtime.getState().snapshot.eventSessionId, "event-session-new");
+  assert.equal(runtime.getState().snapshot.races[0].status, "complete");
 });

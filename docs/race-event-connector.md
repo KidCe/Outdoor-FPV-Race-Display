@@ -8,7 +8,7 @@ Channel colors now belong to the versioned race-day profile and are applied to e
 
 ## Local use
 
-1. Start LiveTimeQue with `npm run board` in its repository.
+1. Start LiveTimeQue with `npm run server` in its repository.
 2. Run `npm run web` in this repository and open `http://localhost:4185/`. This dedicated origin avoids the old LiveTimeQue service worker on port `4175` and sends JavaScript modules with the MIME type required by browsers.
 3. Keep **Connector URL** at `http://localhost:4174`.
 4. Enter an HTTPS `*.livefpv.com` organization URL and enable **LiveTime source**.
@@ -19,5 +19,9 @@ The frontpage status bar records the arrival time of each accepted snapshot inde
 Legacy HTTP reconciliation is lower priority than a newer trusted live observation for the same heat. A result-page snapshot can update the schedule, but it cannot roll a newer live `RUNNING` or `STAGING` status back to an older result status. If the source fails, the last trusted snapshot and its race status remain visible while the source quality is marked degraded.
 
 The connector endpoint and standard are documented in LiveTimeQue under `docs/FPV-RACE-EVENT-DATA-V1.md`. Recorded fixtures remain a code-level adapter for repeatable tests and are intentionally absent from the production race-day UI.
+
+## Hub runtime boundary
+
+The display can consume a central Hub through its optional **Race Data Hub URL** field, and the Hub server/admin/status/announcement paths are covered by deterministic tests. The repository does not yet provide a production Hub launcher or lifecycle script, however. Until a Hub process is explicitly started and the display is pointed at it (normally `http://localhost:4175`), the Hub Admin and central announcements are code-complete integration seams rather than an active race-day service. Direct LiveTimeQue mode on port `4174` does not provide central announcements.
 
 The GitHub Pages copy of the display is HTTPS. Browsers can block requests from it to a plain HTTP connector on the local PC, so local HTTP is the reliable race-day setup until the collector is hosted behind HTTPS.

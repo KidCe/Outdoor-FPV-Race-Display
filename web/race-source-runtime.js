@@ -5,7 +5,7 @@ import { RACE_STATUS, mapRaceStatus } from "./race-status.js";
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 function raceTrustKey(snapshot, race) {
-  return `${snapshot.event?.id || "event"}:${race.id}`;
+  return JSON.stringify([snapshot.eventSessionId || "event-session", snapshot.event?.id || "event", race.id]);
 }
 
 function sourceTimestamp(snapshot, race, fallback) {
@@ -76,6 +76,7 @@ export class RaceSourceRuntime {
     this.storage = storage;
     this.storageKey = storageKey;
     this.trustedStatuses = new Map();
+    this.configured = false;
     this.state = { connection: "disabled", snapshot: null, raceStatus: null, lastDataAt: null, sourceCapturedAt: null, error: "", announcements: [], quality: "unknown" };
     this.hubClient = null;
     try {
@@ -117,8 +118,9 @@ export class RaceSourceRuntime {
       reconcileSeconds: Math.max(10, Number(config.reconcileSeconds) || 30)
     };
     const changed = JSON.stringify(next) !== JSON.stringify(this.config);
-    if (changed && (next.connectorUrl !== this.config.connectorUrl || next.sourceUrl !== this.config.sourceUrl)) this.trustedStatuses.clear();
+    if (this.configured && changed && (next.connectorUrl !== this.config.connectorUrl || next.sourceUrl !== this.config.sourceUrl)) this.trustedStatuses.clear();
     this.config = next;
+    this.configured = true;
     if (changed && this.enabled) void this.restart();
   }
 
@@ -229,9 +231,10 @@ export class RaceSourceRuntime {
 
   accept(snapshot, { origin = "initial" } = {}) {
     const trusted = validateRaceEventSnapshot(snapshot);
+    if (this.state.snapshot?.eventSessionId && this.state.snapshot.eventSessionId !== trusted.eventSessionId) this.trustedStatuses.clear();
     const acceptedAt = this.now();
-    const next = origin === "reconciliation" ? preserveNewerStatuses(trusted, this.trustedStatuses, acceptedAt) : trusted;
-    if (origin !== "reconciliation" || trusted.quality?.state === "fresh") this.rememberStatuses(next, acceptedAt);
+    const next = origin === "live" ? trusted : preserveNewerStatuses(trusted, this.trustedStatuses, acceptedAt);
+    if (origin === "live" || trusted.quality?.state === "fresh") this.rememberStatuses(next, acceptedAt);
     this.retryAttempt = 0;
     try { this.storage?.setItem(this.storageKey, JSON.stringify({ snapshot: next, lastDataAt: acceptedAt })); } catch {}
     this.setState({ connection: "connected", snapshot: next, raceStatus: getActiveRaceStatus(next), lastDataAt: acceptedAt, sourceCapturedAt: next.capturedAt || null, quality: next.quality?.state || "unknown", error: "" });

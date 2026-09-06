@@ -126,6 +126,17 @@ test('LiveFPV adapter normalizes a legacy scoring status before the authoritativ
   assert.equal(observation.snapshot.races.find(race => race.id === observation.snapshot.schedule.currentRaceId).timing.state, 'running');
 });
 
+test('Hub rejects an older full snapshot instead of regressing the trusted race status', async () => {
+  const base = await fixture('snapshot-fresh.json');
+  const store = new TrustedStore({ epoch: 'status-recency-epoch' });
+  store.selectEvent({ eventSessionId: base.eventSessionId, event: base.event });
+  store.publish(statusFrame(base, 'running', 2));
+
+  assert.throws(() => store.publish(statusFrame(base, 'complete', 1)), /older than the trusted snapshot/);
+  assert.equal(store.snapshot.races.find(race => race.id === store.snapshot.schedule.currentRaceId).status, 'running');
+  assert.equal(store.getStatus().raceStatus, 'running');
+});
+
 test('staging, running, and complete survive Hub promotion, direct snapshot, SSE, stale recovery, and persistence', async () => {
   const base = await fixture('snapshot-fresh.json');
   const frames = [statusFrame(base, 'staging', 1), statusFrame(base, 'running', 2), statusFrame(base, 'complete', 3)];
