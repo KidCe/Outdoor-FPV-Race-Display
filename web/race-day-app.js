@@ -3,6 +3,7 @@ import { OutputSession } from "./output-session.js";
 import { RaceDayProfile } from "./race-day-profile.js";
 import { RaceSourceRuntime } from "./race-source-runtime.js";
 import { ANNOUNCEMENT_DISPLAY_MS } from "./race-data-hub-client.js";
+import { isRaceRunning, raceStatusLabel } from "./race-status.js";
 
 const byId = id => document.getElementById(id);
 const VIEW_LABELS = { current: "Current Heat", staging: "Next Up", next: "After Next" };
@@ -167,7 +168,7 @@ export class RaceDayAppHost {
       byId("eventName").textContent = this.currentScene.race.eventName;
       byId("viewLabel").textContent = VIEW_LABELS[this.selectedView];
       byId("raceTitle").textContent = `${this.currentScene.race.round} · ${this.currentScene.race.heat}`;
-      byId("raceState").textContent = `${this.currentScene.race.status} · ${this.currentScene.race.pilots.length} pilots`;
+      byId("raceState").textContent = `${this.currentScene.race.statusLabel} · ${this.currentScene.race.pilots.length} pilots`;
       byId("previewFit").textContent = `${schema.canvas.width}×${schema.canvas.height} · ${schema.nodes.length}/40 nodes`;
       byId("schemaHash").textContent = `Schema ${schema.schemaHash}`;
       this.renderPilots(this.currentScene.race.pilots);
@@ -221,7 +222,7 @@ export class RaceDayAppHost {
       button.type = "button";
       button.dataset.queueView = view;
       const kicker = textElement("span", "heat-block-kicker");
-      kicker.append(textElement("span", "", labels[index] || "Upcoming"), textElement("span", "", race?.status || "unavailable"));
+      kicker.append(textElement("span", "", labels[index] || "Upcoming"), textElement("span", "", raceStatusLabel(race)));
       const title = textElement("h3", "", race ? `${race.round} · ${race.heat}` : "—");
       const pilotList = textElement("span", "mini-pilots");
       if (!race) {
@@ -290,7 +291,7 @@ export class RaceDayAppHost {
     const firstRace = this.currentScene?.schedule?.[0];
     const hasNext = this.currentScene?.schedule?.length > 1;
     if (!this.profile.cycle.enabled) { byId("cycleStatus").textContent = "Cycle off"; return; }
-    if (firstRace?.status !== "racing") { byId("cycleStatus").textContent = "Waiting for current heat to run"; return; }
+    if (!isRaceRunning(firstRace)) { byId("cycleStatus").textContent = "Waiting for current heat to run"; return; }
     if (!hasNext) { byId("cycleStatus").textContent = "Waiting for next heat"; return; }
     const milliseconds = this.profile.cycle.seconds * 1000;
     this.nextCycleAt = Date.now() + milliseconds;

@@ -4,6 +4,8 @@ The browser display consumes `org.fpv.race-event.snapshot` version 1 from LiveTi
 
 Channel colors now belong to the versioned race-day profile and are applied to every projected heat. Partial live packets may omit video metadata; `DisplayScene` resolves a missing assignment from the same pilot elsewhere in the event snapshot instead of clearing a previously known channel.
 
+`web/race-status.js` is the shared consumer seam for race lifecycle presentation. It maps canonical Hub values and legacy LiveTime values such as `ready`, `racing`, and `completed` to the exact display labels `STAGING`, `RUNNING`, and `COMPLETE`; unsupported or missing values render as `UNKNOWN`. Connection state, source quality, and errors remain separate from the race status.
+
 ## Local use
 
 1. Start LiveTimeQue with `npm run board` in its repository.
@@ -13,6 +15,8 @@ Channel colors now belong to the versioned race-day profile and are applied to e
 5. `RaceSourceRuntime` keeps the event stream connected and performs periodic HTTP reconciliation. Failed updates never clear the last trusted state; the UI shows its age and can explicitly clear it from source settings.
 
 The frontpage status bar records the arrival time of each accepted snapshot independently from the WLED transport. It shows whether the display is connected through USB serial or the network WebSocket, whether live output is actively controlling it, and the elapsed time since connector data arrived. It changes to a warning after two minutes without a new snapshot and to a critical stale-data state after ten minutes. **Stop & clear display** is a manual safety action: it disables live output, sends `activate(false)` when the display link is available, and returns control to the normal WLED fallback effect. It does not automatically stop the display.
+
+Legacy HTTP reconciliation is lower priority than a newer trusted live observation for the same heat. A result-page snapshot can update the schedule, but it cannot roll a newer live `RUNNING` or `STAGING` status back to an older result status. If the source fails, the last trusted snapshot and its race status remain visible while the source quality is marked degraded.
 
 The connector endpoint and standard are documented in LiveTimeQue under `docs/FPV-RACE-EVENT-DATA-V1.md`. Recorded fixtures remain a code-level adapter for repeatable tests and are intentionally absent from the production race-day UI.
 

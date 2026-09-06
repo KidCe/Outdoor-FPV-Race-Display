@@ -1,4 +1,5 @@
 import { validateRaceEventSnapshot } from "./race-event-connector.js";
+import { mapRaceStatus, presentRaceStatus } from "./race-status.js";
 
 const VIEW_ORDER = ["current", "staging", "next"];
 
@@ -67,6 +68,7 @@ export function projectRaceSchedule(snapshot, profile, { limit = 4 } = {}) {
 }
 
 function projectRace(snapshot, profile, race, presetKey) {
+  const status = mapRaceStatus(race.status);
   return {
     id: race.id,
     order: race.order,
@@ -74,7 +76,8 @@ function projectRace(snapshot, profile, race, presetKey) {
     eventName: snapshot.event.name,
     round: compactRound(race.round || race.phase),
     heat: compactHeat(race),
-    status: race.status || "unknown",
+    status,
+    statusLabel: presentRaceStatus(status),
     label: race.label || "",
     pilots: (race.pilots || []).slice(0, 8).map(pilot => {
       const video = resolveVideo(snapshot.races, pilot);
@@ -160,7 +163,7 @@ export class DisplayScene {
       view,
       race: race ? { ...race, presetKey } : null,
       preset: this.profile.display.presets[presetKey],
-      header: race ? `${race.round} ${race.heat}`.trim().toUpperCase() : ""
+      header: race ? `${race.statusLabel} ${race.heat}`.trim().toUpperCase() : ""
     };
   }
 

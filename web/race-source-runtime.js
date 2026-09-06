@@ -1,7 +1,31 @@
 import { createRaceEventStreamUrl, fetchRaceEventSnapshot, validateRaceEventSnapshot } from "./race-event-connector.js";
 import { RaceDataHubClient } from "./race-data-hub-client.js";
+import { RACE_STATUS, mapRaceStatus } from "./race-status.js";
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+function raceTrustKey(snapshot, race) {
+  return `${snapshot.event?.id || "event"}:${race.id}`;
+}
+
+function sourceTimestamp(snapshot, race, fallback) {
+  for (const value of [race?.timing?.capturedAt, snapshot?.capturedAt]) {
+    const timestamp = Date.parse(value || "");
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return fallback;
+}
+
+function preserveNewerStatuses(snapshot, trustedStatuses, acceptedAt) {
+  const preserved = structuredClone(snapshot);
+  for (const race of preserved.races || []) {
+    const trusted = trustedStatuses.get(raceTrustKey(preserved, race));
+    if (!trusted || trusted.status === RACE_STATUS.UNKNOWN) continue;
+    const incomingAt = sourceTimestamp(preserved, race, acceptedAt);
+    if (preserved.quality?.state !== "fresh" || trusted.observedAt >= incomingAt) race.status = trusted.rawStatus;
+  }
+  return preserved;
+}
 
 export class HttpRaceSourceAdapter {
   constructor({ fetchImpl = globalThis.fetch, EventSourceImpl = globalThis.EventSource } = {}) {
@@ -51,13 +75,18 @@ export class RaceSourceRuntime {
     this.abortController = null;
     this.storage = storage;
     this.storageKey = storageKey;
-    this.state = { connection: "disabled", snapshot: null, lastDataAt: null, error: "", announcements: [], quality: "unknown" };
+    this.trustedStatuses = new Map();
+    this.state = { connection: "disabled", snapshot: null, lastDataAt: null, sourceCapturedAt: null, error: "", announcements: [], quality: "unknown" };
     this.hubClient = null;
     try {
       const cached = JSON.parse(this.storage?.getItem(this.storageKey) || "null");
       if (cached?.snapshot) {
         this.state.snapshot = validateRaceEventSnapshot(cached.snapshot);
         this.state.lastDataAt = Number(cached.lastDataAt) || null;
+        this.state.sourceCapturedAt = this.state.snapshot.capturedAt || null;
+        this.state.quality = "stale";
+        this.state.connection = "reconnecting";
+        this.rememberStatuses(this.state.snapshot, this.state.lastDataAt || this.now());
       }
     } catch {}
   }
@@ -75,6 +104,7 @@ export class RaceSourceRuntime {
     try { this.storage?.removeItem(this.storageKey); } catch {}
     try { this.storage?.removeItem("fpv-race-hub-trusted-v1"); } catch {}
     this.hubClient?.clearTrustedSnapshot?.();
+    this.trustedStatuses.clear();
     this.setState({ snapshot: null, lastDataAt: null, sourceCapturedAt: null, announcements: [], quality: "unknown", error: this.enabled ? this.state.error : "" });
   }
 
@@ -86,6 +116,7 @@ export class RaceSourceRuntime {
       reconcileSeconds: Math.max(10, Number(config.reconcileSeconds) || 30)
     };
     const changed = JSON.stringify(next) !== JSON.stringify(this.config);
+    if (changed && (next.connectorUrl !== this.config.connectorUrl || next.sourceUrl !== this.config.sourceUrl)) this.trustedStatuses.clear();
     this.config = next;
     if (changed && this.enabled) void this.restart();
   }
@@ -134,6 +165,7 @@ export class RaceSourceRuntime {
     this.abortController = null;
     if (markDisabled) {
       this.enabled = false;
+      this.trustedStatuses.clear();
       this.setState({ connection: "disabled", error: "" });
     }
   }
@@ -150,10 +182,10 @@ export class RaceSourceRuntime {
     try {
       const snapshot = await this.adapter.snapshot(this.config, controller.signal);
       if (!this.enabled || generation !== this.generation) return;
-      this.accept(snapshot);
+      this.accept(snapshot, { origin: quiet ? "reconciliation" : "initial" });
     } catch (error) {
       if (controller.signal.aborted || generation !== this.generation) return;
-      this.setState({ connection: this.state.snapshot ? "degraded" : "error", error: error.message });
+      this.setState({ connection: this.state.snapshot ? "degraded" : "error", quality: this.state.snapshot ? "degraded" : "unknown", error: error.message });
     }
   }
 
@@ -168,16 +200,16 @@ export class RaceSourceRuntime {
         },
         snapshot: snapshot => {
           if (generation !== this.generation) return;
-          try { this.accept(snapshot); } catch (error) { this.setState({ connection: "degraded", error: error.message }); }
+          try { this.accept(snapshot, { origin: "live" }); } catch (error) { this.setState({ connection: "degraded", quality: "degraded", error: error.message }); }
         },
         error: error => {
           if (generation !== this.generation || !this.enabled) return;
-          this.setState({ connection: this.state.snapshot ? "reconnecting" : "error", error: error.message });
+          this.setState({ connection: this.state.snapshot ? "reconnecting" : "error", quality: this.state.snapshot ? "degraded" : "unknown", error: error.message });
           this.scheduleReconnect(generation);
         }
       });
     } catch (error) {
-      this.setState({ connection: this.state.snapshot ? "reconnecting" : "error", error: error.message });
+      this.setState({ connection: this.state.snapshot ? "reconnecting" : "error", quality: this.state.snapshot ? "degraded" : "unknown", error: error.message });
       this.scheduleReconnect(generation);
     }
   }
@@ -194,12 +226,25 @@ export class RaceSourceRuntime {
     }, delay);
   }
 
-  accept(snapshot) {
+  accept(snapshot, { origin = "initial" } = {}) {
     const trusted = validateRaceEventSnapshot(snapshot);
+    const acceptedAt = this.now();
+    const next = origin === "reconciliation" ? preserveNewerStatuses(trusted, this.trustedStatuses, acceptedAt) : trusted;
+    if (origin !== "reconciliation" || trusted.quality?.state === "fresh") this.rememberStatuses(next, acceptedAt);
     this.retryAttempt = 0;
-    const lastDataAt = this.now();
-    try { this.storage?.setItem(this.storageKey, JSON.stringify({ snapshot: trusted, lastDataAt })); } catch {}
-    this.setState({ connection: "connected", snapshot: trusted, lastDataAt, error: "" });
+    try { this.storage?.setItem(this.storageKey, JSON.stringify({ snapshot: next, lastDataAt: acceptedAt })); } catch {}
+    this.setState({ connection: "connected", snapshot: next, lastDataAt: acceptedAt, sourceCapturedAt: next.capturedAt || null, quality: next.quality?.state || "unknown", error: "" });
+  }
+
+  rememberStatuses(snapshot, acceptedAt) {
+    for (const race of snapshot.races || []) {
+      const status = mapRaceStatus(race.status);
+      if (status === RACE_STATUS.UNKNOWN) continue;
+      const observedAt = sourceTimestamp(snapshot, race, acceptedAt);
+      const key = raceTrustKey(snapshot, race);
+      const previous = this.trustedStatuses.get(key);
+      if (!previous || observedAt >= previous.observedAt) this.trustedStatuses.set(key, { rawStatus: race.status, status, observedAt });
+    }
   }
 
   setState(patch) {
