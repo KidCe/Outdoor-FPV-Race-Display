@@ -150,6 +150,18 @@ export class RaceDayAppHost {
     }
     try {
       this.currentScene = this.sceneModule.project(snapshot, this.selectedView);
+      if (!this.currentScene.race) {
+        this.renderWaitingPreview();
+        byId("viewLabel").textContent = VIEW_LABELS[this.selectedView];
+        byId("raceTitle").textContent = "—";
+        byId("raceState").textContent = `${VIEW_LABELS[this.selectedView]} is not available from the trusted schedule`;
+        this.renderPilots([]);
+        this.renderHeatQueue(this.currentScene.schedule);
+        this.publishScene();
+        this.renderStatus();
+        this.configureCycle();
+        return;
+      }
       this.sceneModule.render(byId("matrixPreview"), this.currentScene);
       const schema = this.sceneModule.getSchema();
       byId("eventName").textContent = this.currentScene.race.eventName;
@@ -209,10 +221,12 @@ export class RaceDayAppHost {
       button.type = "button";
       button.dataset.queueView = view;
       const kicker = textElement("span", "heat-block-kicker");
-      kicker.append(textElement("span", "", labels[index] || "Upcoming"), textElement("span", "", race.status));
-      const title = textElement("h3", "", `${race.round} · ${race.heat}`);
+      kicker.append(textElement("span", "", labels[index] || "Upcoming"), textElement("span", "", race?.status || "unavailable"));
+      const title = textElement("h3", "", race ? `${race.round} · ${race.heat}` : "—");
       const pilotList = textElement("span", "mini-pilots");
-      if (race.pilots.length) {
+      if (!race) {
+        pilotList.append(textElement("span", "mini-pilot", "No trusted schedule entry"));
+      } else if (race.pilots.length) {
         for (const pilot of race.pilots) {
           const miniPilot = textElement("span", "mini-pilot");
           const channel = textElement("b", "", pilot.channel || "—");

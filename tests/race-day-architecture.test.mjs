@@ -62,6 +62,34 @@ test("the queue projection keeps current, next and after-next pilots with channe
   assert.deepEqual(schedule[0].pilots.map(pilot => pilot.channel), ["R1", "R3", "R6", "R8"]);
 });
 
+test("the display follows explicit schedule IDs instead of race array position", () => {
+  const shuffled = structuredClone(snapshot);
+  shuffled.races = [shuffled.races[2], shuffled.races[0], shuffled.races[1]];
+  shuffled.schedule.currentIndex = 1;
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const schedule = projectRaceSchedule(shuffled, profile, { limit: 3 });
+  assert.deepEqual(schedule.map(item => item.id), ["race-1", "race-2", "race-3"]);
+});
+
+test("a missing requested queue slot stays blank instead of duplicating another heat", () => {
+  const onlyCurrent = structuredClone(snapshot);
+  onlyCurrent.schedule.nextRaceIds = [];
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  const scene = display.project(onlyCurrent, "staging");
+  assert.equal(scene.race, null);
+  assert.equal(display.getState(scene).filter(value => value.text).length, 0);
+});
+
+test("an unknown explicit queue ID does not shift a later heat into the wrong view", () => {
+  const sparse = structuredClone(snapshot);
+  sparse.schedule.nextRaceIds = ["missing-race", "race-3"];
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  assert.equal(display.project(sparse, "staging").race, null);
+  assert.equal(display.project(sparse, "next").race.id, "race-3");
+});
+
 test("DisplayScene recovers an omitted R8 assignment from the trusted event schedule", () => {
   const partial = structuredClone(snapshot);
   delete partial.races[0].pilots[3].video;

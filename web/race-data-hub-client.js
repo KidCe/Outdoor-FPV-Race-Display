@@ -7,6 +7,8 @@ const QUALITY_STATES = new Set(["fresh", "degraded", "stale", "unknown"]);
 const RACE_STATUSES = new Set(["scheduled", "staging", "running", "complete", "cancelled", "not_run", "unknown"]);
 const TIMING_STATES = new Set(["unknown", "staging", "running", "complete", "degraded", "stale"]);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const CREDENTIAL_QUERY_PATTERN = /pass(word)?|secret|token|api[-_]?key|auth(entication)?|credential/i;
 
 function object(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Hub ${name} must be an object.`);
@@ -25,13 +27,16 @@ function string(value, name, { min = 0, max = Infinity } = {}) {
 }
 
 function dateTime(value, name) {
-  if (typeof value !== "string" || !value || !Number.isFinite(Date.parse(value))) throw new Error(`Hub ${name} is invalid.`);
+  if (typeof value !== "string" || !DATE_TIME_PATTERN.test(value) || !Number.isFinite(Date.parse(value))) throw new Error(`Hub ${name} is invalid.`);
   return value;
 }
 
 function uri(value, name, maximum = 2048) {
   string(value, name, { min: 1, max: maximum });
-  try { new URL(value); } catch { throw new Error(`Hub ${name} is invalid.`); }
+  try {
+    const parsed = new URL(value);
+    if (parsed.username || parsed.password || [...parsed.searchParams.keys()].some(key => CREDENTIAL_QUERY_PATTERN.test(key))) throw new Error("credential-bearing URI");
+  } catch { throw new Error(`Hub ${name} is invalid.`); }
   return value;
 }
 
@@ -134,7 +139,7 @@ export function validateHubSnapshot(snapshot) {
   snapshot.schedule.nextRaceIds.forEach((value, index) => id(value, `nextRaceIds item ${index}`));
   if (!Array.isArray(snapshot.races) || snapshot.races.length < 1) throw new Error("Hub snapshot races are invalid."); const raceIds = new Set(); snapshot.races.forEach((race, index) => { validateRace(race, `race ${index}`); if (raceIds.has(race.id)) throw new Error("Hub snapshot contains duplicate race IDs."); raceIds.add(race.id); });
   if ((snapshot.schedule.currentIndex === null) !== (snapshot.schedule.currentRaceId === null)) throw new Error("Hub schedule current race fields must be both null or both set."); if (snapshot.schedule.currentIndex !== null && snapshot.races[snapshot.schedule.currentIndex]?.id !== snapshot.schedule.currentRaceId) throw new Error("Hub snapshot has an inconsistent current race.");
-  validateQuality(snapshot.quality); if (!Array.isArray(snapshot.activeAnnouncements)) throw new Error("Hub active announcements are invalid."); snapshot.activeAnnouncements.forEach((announcement, index) => { validateHubAnnouncement(announcement); if (announcement.eventSessionId !== snapshot.eventSessionId) throw new Error(`Hub active announcement ${index} belongs to another event.`); }); return snapshot;
+  validateQuality(snapshot.quality); if (!Array.isArray(snapshot.activeAnnouncements)) throw new Error("Hub active announcements are invalid."); snapshot.activeAnnouncements.forEach((announcement, index) => { validateHubAnnouncement(announcement); if (announcement.eventSessionId !== snapshot.eventSessionId) throw new Error(`Hub active announcement ${index} belongs to another event.`); if (announcement.status !== "active") throw new Error(`Hub active announcement ${index} is not active.`); }); return snapshot;
 }
 
 function validateStatus(data) {
@@ -155,7 +160,7 @@ export function validateHubEnvelope(envelope) {
   return envelope;
 }
 
-function sortAnnouncements(announcements) { return [...announcements].sort((left, right) => right.importance - left.importance || Date.parse(right.createdAt) - Date.parse(left.createdAt)); }
+function sortAnnouncements(announcements) { return [...announcements].sort((left, right) => right.importance - left.importance || Date.parse(right.createdAt) - Date.parse(left.createdAt) || String(left.announcementId).localeCompare(String(right.announcementId))); }
 
 function staleSnapshot(snapshot) {
   const recovered = structuredClone(snapshot); recovered.quality = { ...recovered.quality, state: "stale", warnings: [...recovered.quality.warnings, { code: "consumer.recovered", message: "The last trusted Hub snapshot was recovered from local storage.", severity: "warning" }], domains: Object.fromEntries(Object.entries(recovered.quality.domains).map(([key, value]) => [key, { ...value, state: "stale", reason: value.reason || "consumer_recovered" }])) }; return recovered;
@@ -206,8 +211,8 @@ export class RaceDataHubClient {
     if (!epochChanged && envelope.streamSequence <= this.state.streamSequence) return false;
     if (!epochChanged && this.state.streamSequence > 0 && envelope.streamSequence > this.state.streamSequence + 1 && envelope.type !== "reset") return this.requireReset("Hub stream gap detected; requesting reset.");
     this.setState({ hubEpoch: envelope.hubEpoch, eventSessionId: envelope.eventSessionId, streamSequence: envelope.streamSequence });
-    if (envelope.type === "reset") { this.setState({ snapshot: null, announcements: [], quality: "unknown", sourceCapturedAt: null, snapshotSequence: 0, needsReset: false, connection: "reconciling", error: `Hub stream reset: ${envelope.data.reason}.` }); return true; }
-    if (envelope.type === "snapshot") this.acceptSnapshot(envelope.data, { sequence: envelope.streamSequence, snapshotSequence: envelope.snapshotSequence }); else if (envelope.type === "announcement") this.setState({ announcements: envelope.data.status === "active" ? sortAnnouncements([...this.state.announcements.filter(item => item.announcementId !== envelope.data.announcementId), envelope.data]) : this.state.announcements.filter(item => item.announcementId !== envelope.data.announcementId) }); else if (envelope.type === "announcement-clear") this.setState({ announcements: this.state.announcements.filter(item => item.announcementId !== envelope.data.announcementId) }); else if (envelope.type === "status") this.setState({ connection: envelope.data.connection, quality: envelope.data.quality, error: envelope.data.message || "" }); else if (envelope.type === "warning") this.setState({ connection: "degraded", error: envelope.data.message });
+    if (envelope.type === "reset") { try { this.storage?.removeItem(this.storageKey); } catch {} this.setState({ snapshot: null, announcements: [], quality: "unknown", sourceCapturedAt: null, snapshotSequence: 0, needsReset: false, connection: "reconciling", error: `Hub stream reset: ${envelope.data.reason}.` }); return true; }
+    if (envelope.type === "snapshot") this.acceptSnapshot(envelope.data, { sequence: envelope.streamSequence, snapshotSequence: envelope.snapshotSequence }); else if (envelope.type === "announcement") { const announcements = envelope.data.status === "active" ? sortAnnouncements([...this.state.announcements.filter(item => item.announcementId !== envelope.data.announcementId), envelope.data]) : this.state.announcements.filter(item => item.announcementId !== envelope.data.announcementId); const snapshot = this.state.snapshot ? { ...this.state.snapshot, activeAnnouncements: announcements } : null; this.setState({ announcements, snapshot }); if (snapshot) this.persist(snapshot); } else if (envelope.type === "announcement-clear") { const announcements = this.state.announcements.filter(item => item.announcementId !== envelope.data.announcementId); const snapshot = this.state.snapshot ? { ...this.state.snapshot, activeAnnouncements: announcements } : null; this.setState({ announcements, snapshot }); if (snapshot) this.persist(snapshot); } else if (envelope.type === "status") this.setState({ connection: envelope.data.connection, quality: envelope.data.quality, error: envelope.data.message || "" }); else if (envelope.type === "warning") this.setState({ connection: "degraded", error: envelope.data.message });
     return true;
   }
   async connect() {

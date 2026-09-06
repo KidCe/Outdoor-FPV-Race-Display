@@ -214,6 +214,11 @@ test('announcement writes require the shared password and remain event-scoped', 
     const cleared = await fetch(`http://127.0.0.1:${port}/api/v1/announcements/${announcement.announcementId}/clear`, { method: 'POST', headers: { 'x-event-write-password': 'correct' } });
     assert.equal(cleared.status, 200);
     assert.deepEqual(store.getActiveAnnouncements(), []);
+    const expiring = store.createAnnouncement({ title: 'Temporary notice', body: 'This will expire in the replay.', importance: 2, createdByDeviceId: 'race-manager', expiresAt: '2026-09-06T10:00:30.000Z' });
+    assert.equal(store.getActiveAnnouncements()[0].announcementId, expiring.announcementId);
+    assert.equal(store.expireAnnouncements(new Date('2026-09-06T10:00:31.000Z')), true);
+    assert.equal(store.getAnnouncementHistory().items.at(-1).status, 'expired');
+    assert.deepEqual(store.getActiveAnnouncements(), []);
   } finally {
     await close(server);
   }
@@ -297,6 +302,7 @@ test('end-to-end replay exercises heat transitions, correction/rerun, stale reco
     assert.equal(resetEvents.find(event => event.type === 'reset').data.reason, 'event_changed');
   } finally {
     await close(server);
+    await store.save();
     await rm(directory, { recursive: true, force: true });
   }
 });

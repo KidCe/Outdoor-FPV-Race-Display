@@ -48,8 +48,11 @@ function resolveVideo(races, pilot) {
 }
 
 function raceIdsInOrder(snapshot) {
-  const ids = [snapshot.schedule.currentRaceId, ...(snapshot.schedule.nextRaceIds || [])];
-  for (let index = snapshot.schedule.currentIndex + 1; index < snapshot.races.length; index += 1) ids.push(snapshot.races[index].id);
+  const ids = [
+    snapshot.schedule.currentRaceId,
+    ...(snapshot.schedule.nextRaceIds || []),
+    ...(snapshot.schedule.afterNextRaceIds || [])
+  ];
   return [...new Set(ids.filter(Boolean))];
 }
 
@@ -60,7 +63,7 @@ export function projectRaceSchedule(snapshot, profile, { limit = 4 } = {}) {
     const race = snapshot.races.find(candidate => candidate.id === id);
     if (!race) return null;
     return projectRace(snapshot, profile, race, index === 0 ? "current" : index === 1 ? "staging" : "next");
-  }).filter(Boolean);
+  });
 }
 
 function projectRace(snapshot, profile, race, presetKey) {
@@ -147,7 +150,7 @@ export class DisplayScene {
   project(snapshot, view = "current") {
     const schedule = projectRaceSchedule(snapshot, this.profile, { limit: 4 });
     const index = view === "current" ? 0 : view === "staging" ? 1 : 2;
-    const race = schedule[index] || schedule[Math.min(1, schedule.length - 1)] || schedule[0];
+    const race = schedule[index] || null;
     const presetKey = VIEW_ORDER[Math.min(index, 2)];
     return {
       snapshotId: snapshot.snapshotId,
@@ -155,21 +158,23 @@ export class DisplayScene {
       quality: snapshot.quality,
       schedule,
       view,
-      race: { ...race, presetKey },
+      race: race ? { ...race, presetKey } : null,
       preset: this.profile.display.presets[presetKey],
-      header: `${race.round} ${race.heat}`.trim().toUpperCase()
+      header: race ? `${race.round} ${race.heat}`.trim().toUpperCase() : ""
     };
   }
 
   getState(scene) {
     const values = [];
+    const activePresetKey = scene.race?.presetKey || null;
     for (const key of VIEW_ORDER) {
       const preset = this.profile.display.presets[key];
-      values.push({ key: `header-${key}`, text: scene.header, color: colorNumber(preset.headerTextColor), visible: key === scene.race.presetKey });
-      values.push({ key: `group-${key}`, color: colorNumber(preset.headerFrameColor), visible: key === scene.race.presetKey });
+      values.push({ key: `header-${key}`, text: scene.header, color: colorNumber(preset.headerTextColor), visible: Boolean(activePresetKey) && key === activePresetKey });
+      values.push({ key: `group-${key}`, color: colorNumber(preset.headerFrameColor), visible: Boolean(activePresetKey) && key === activePresetKey });
     }
+    const pilots = scene.race?.pilots || [];
     for (let index = 0; index < 8; index += 1) {
-      const pilot = scene.race.pilots[index];
+      const pilot = pilots[index];
       values.push({ key: `ch${index}`, text: pilot?.channel || "", color: colorNumber(pilot?.color || "#ffffff") });
       values.push({ key: `pn${index}`, text: String(pilot?.callsign || "").toUpperCase(), color: colorNumber(this.profile.display.pilotTextColor) });
     }
@@ -227,6 +232,7 @@ export class DisplayScene {
     context.imageSmoothingEnabled = false;
     context.fillStyle = this.profile.display.backgroundColor;
     context.fillRect(0, 0, canvas.width, canvas.height);
+    if (!scene?.race) return { width, height, schemaHash: this.schema.schemaHash, nodes: this.schema.nodes.length };
     context.save();
     context.scale(zoom, zoom);
     context.textBaseline = "top";

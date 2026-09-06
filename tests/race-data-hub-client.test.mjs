@@ -1,10 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RaceDataHubClient, projectHubSnapshot, validateHubEnvelope, renderHubAnnouncement } from "../web/race-data-hub-client.js";
+import { RaceDataHubClient, projectHubSnapshot, validateHubEnvelope, validateHubSnapshot, renderHubAnnouncement } from "../web/race-data-hub-client.js";
 import { RaceSourceRuntime } from "../web/race-source-runtime.js";
 import fs from "node:fs/promises";
 
 const fixture = name => fs.readFile(`contracts/race-event/v1/fixtures/${name}`, "utf8").then(JSON.parse);
+
+const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+class FakeEventSource {
+  static instances = [];
+
+  constructor(url) {
+    this.url = String(url);
+    this.readyState = 0;
+    this.listeners = new Map();
+    FakeEventSource.instances.push(this);
+  }
+
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || new Set();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  open() {
+    this.readyState = 1;
+    this.onopen?.();
+  }
+
+  fail() {
+    this.readyState = 2;
+    this.onerror?.(new Error("stream interrupted"));
+  }
+
+  close() {
+    this.readyState = 2;
+  }
+}
 
 test("Hub validates fixtures and projects current, staging, and next", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
@@ -14,6 +47,15 @@ test("Hub validates fixtures and projects current, staging, and next", async () 
   assert.equal(projection.next, null);
   assert.equal(projection.afterNext, null);
   assert.equal(validateHubEnvelope(await fixture("stream-reset.json")).type, "reset");
+});
+
+test("Hub consumer rejects inconsistent current identity and inactive active announcements", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  assert.throws(() => validateHubSnapshot({ ...snapshot, schedule: { ...snapshot.schedule, currentIndex: null } }), /current race fields/);
+  assert.throws(() => validateHubSnapshot({ ...snapshot, event: { ...snapshot.event, sourceUrl: "https://race.test/live?token=should-not-be-stored" } }), /invalid/);
+  assert.throws(() => validateHubSnapshot({ ...snapshot, capturedAt: "September 6, 2026" }), /invalid/);
+  const announcement = await fixture("announcement-active.json");
+  assert.throws(() => validateHubSnapshot({ ...snapshot, activeAnnouncements: [{ ...announcement, status: "cleared", clearedAt: announcement.createdAt }] }), /not active/);
 });
 
 test("Hub preserves an explicit no-active-heat state without inventing a projection", async () => {
@@ -80,6 +122,19 @@ test("Hub trusted-data clearing removes the in-memory snapshot and cache", async
   assert.equal(values.has("fpv-race-hub-trusted-v1"), false);
 });
 
+test("Hub announcement changes update the recoverable trusted snapshot", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const announcement = await fixture("stream-announcement.json");
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+  const client = new RaceDataHubClient({ hubUrl: "http://hub.test", storage });
+  client.acceptSnapshot(snapshot);
+  client.apply({ ...announcement, streamSequence: 1 });
+  assert.equal(JSON.parse(values.get("fpv-race-hub-trusted-v1")).snapshot.activeAnnouncements[0].announcementId, announcement.data.announcementId);
+  client.apply({ type: "announcement-clear", hubEpoch: announcement.hubEpoch, eventSessionId: snapshot.eventSessionId, streamSequence: 2, deliveredAt: announcement.deliveredAt, data: { announcementId: announcement.data.announcementId, clearedAt: announcement.deliveredAt } });
+  assert.deepEqual(JSON.parse(values.get("fpv-race-hub-trusted-v1")).snapshot.activeAnnouncements, []);
+});
+
 test("Hub reset clears the old state before accepting the new epoch", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
   const reset = await fixture("stream-reset.json");
@@ -109,6 +164,39 @@ test("Hub bootstrap failure enters reconnecting state and can be stopped", async
   assert.equal(client.getState().connection, "error");
   client.close();
   assert.equal(client.getState().connection, "disabled");
+});
+
+test("Hub stream reconnect preserves stale data until a fresh bootstrap succeeds", async () => {
+  const first = await fixture("snapshot-fresh.json");
+  const second = structuredClone(first);
+  second.snapshotId = "forest-finale-session-1:reconnected";
+  second.capturedAt = "2026-09-06T10:01:00.000Z";
+  let bootstrapCount = 0;
+  FakeEventSource.instances = [];
+  const client = new RaceDataHubClient({
+    hubUrl: "http://hub.test",
+    storage: null,
+    EventSourceImpl: FakeEventSource,
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => structuredClone(bootstrapCount++ === 0 ? first : second) })
+  });
+  try {
+    assert.equal(await client.connect(), true);
+    const initialStream = FakeEventSource.instances[0];
+    initialStream.open();
+    assert.equal(client.getState().snapshot.snapshotId, first.snapshotId);
+    initialStream.fail();
+    assert.equal(client.getState().connection, "reconnecting");
+    assert.equal(client.getState().snapshot.snapshotId, first.snapshotId);
+    const deadline = Date.now() + 3000;
+    while (FakeEventSource.instances.length < 2 && Date.now() < deadline) await wait(25);
+    assert.equal(FakeEventSource.instances.length >= 2, true);
+    assert.equal(client.getState().snapshot.snapshotId, second.snapshotId);
+    assert.equal(bootstrapCount, 2);
+    FakeEventSource.instances[1].open();
+    assert.equal(client.getState().connection, "live");
+  } finally {
+    client.close();
+  }
 });
 
 test("RaceSourceRuntime routes Hub mode through the Hub client and keeps output-independent state", async () => {
