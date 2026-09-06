@@ -107,7 +107,17 @@ function validateTiming(value, path, errors) {
   dateTime(value.capturedAt, `${path}.capturedAt`, errors);
 }
 
-function publicUri(value) { try { const url = new URL(value); return !url.username && !url.password && !hasCredentialQuery(url); } catch { return false; } }
+function publicUri(value) { try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.hash && !hasCredentialQuery(url); } catch { return false; } }
+
+function validateEvent(value, path, errors) {
+  if (!checkKeys(value, new Set(['id', 'name', 'organizer', 'sourceUrl', 'startsAt', 'endsAt']), path, errors)) return;
+  requiredString(value.id, `${path}.id`, errors, { id: true, max: 128 });
+  requiredString(value.name, `${path}.name`, errors, { max: 200 });
+  optionalString(value.organizer, `${path}.organizer`, errors, { max: 160 });
+  if (value.sourceUrl !== undefined && (typeof value.sourceUrl !== 'string' || value.sourceUrl.length > 2048 || !publicUri(value.sourceUrl))) errors.push(`${path}.sourceUrl must be a URI without credentials`);
+  optionalDateTime(value.startsAt, `${path}.startsAt`, errors, true);
+  optionalDateTime(value.endsAt, `${path}.endsAt`, errors, true);
+}
 
 function validateRace(value, path, errors) {
   if (!checkKeys(value, new Set(['id', 'runId', 'attempt', 'order', 'label', 'phase', 'round', 'heat', 'status', 'timing', 'links', 'pilots']), path, errors)) return;
@@ -139,14 +149,7 @@ function validateSnapshotInternal(snapshot, path, errors) {
   requiredString(snapshot.snapshotId, `${path}.snapshotId`, errors, { id: true, max: 128 });
   requiredString(snapshot.eventSessionId, `${path}.eventSessionId`, errors, { id: true, max: 128 });
   dateTime(snapshot.capturedAt, `${path}.capturedAt`, errors);
-  if (checkKeys(snapshot.event, new Set(['id', 'name', 'organizer', 'sourceUrl', 'startsAt', 'endsAt']), `${path}.event`, errors)) {
-    requiredString(snapshot.event.id, `${path}.event.id`, errors, { id: true, max: 128 });
-    requiredString(snapshot.event.name, `${path}.event.name`, errors, { max: 200 });
-    optionalString(snapshot.event.organizer, `${path}.event.organizer`, errors, { max: 160 });
-    if (snapshot.event.sourceUrl !== undefined) { if (typeof snapshot.event.sourceUrl !== 'string' || snapshot.event.sourceUrl.length > 2048 || !publicUri(snapshot.event.sourceUrl)) errors.push(`${path}.event.sourceUrl must be a URI without credentials`); }
-    optionalDateTime(snapshot.event.startsAt, `${path}.event.startsAt`, errors, true);
-    optionalDateTime(snapshot.event.endsAt, `${path}.event.endsAt`, errors, true);
-  }
+  validateEvent(snapshot.event, `${path}.event`, errors);
   if (!Array.isArray(snapshot.sources) || snapshot.sources.length < 1) errors.push(`${path}.sources must contain at least one source`); else snapshot.sources.forEach((source, index) => { if (checkKeys(source, new Set(['id', 'provider', 'kind', 'revision', 'capturedAt', 'confidence']), `${path}.sources[${index}]`, errors)) { requiredString(source.id, `${path}.sources[${index}].id`, errors, { id: true, max: 128 }); requiredString(source.provider, `${path}.sources[${index}].provider`, errors, { max: 120 }); requiredString(source.kind, `${path}.sources[${index}].kind`, errors, { max: 120 }); requiredString(source.revision, `${path}.sources[${index}].revision`, errors, { max: 160 }); dateTime(source.capturedAt, `${path}.sources[${index}].capturedAt`, errors); if (source.confidence !== undefined) enumValue(source.confidence, CONFIDENCES, `${path}.sources[${index}].confidence`, errors); } });
   if (checkKeys(snapshot.schedule, new Set(['currentRaceId', 'currentIndex', 'nextRaceIds', 'afterNextRaceIds']), `${path}.schedule`, errors)) {
     if (snapshot.schedule.currentRaceId !== null) requiredString(snapshot.schedule.currentRaceId, `${path}.schedule.currentRaceId`, errors, { id: true, max: 128 });
@@ -154,7 +157,7 @@ function validateSnapshotInternal(snapshot, path, errors) {
     arrayOfIds(snapshot.schedule.nextRaceIds, `${path}.schedule.nextRaceIds`, errors);
     if (snapshot.schedule.afterNextRaceIds !== undefined) arrayOfIds(snapshot.schedule.afterNextRaceIds, `${path}.schedule.afterNextRaceIds`, errors);
   }
-  if (!Array.isArray(snapshot.races) || snapshot.races.length < 1) errors.push(`${path}.races must contain at least one race`); else snapshot.races.forEach((race, index) => validateRace(race, `${path}.races[${index}]`, errors));
+  if (!Array.isArray(snapshot.races) || snapshot.races.length < 1) errors.push(`${path}.races must contain at least one race`); else { const raceIds = new Set(); snapshot.races.forEach((race, index) => { validateRace(race, `${path}.races[${index}]`, errors); if (isObject(race) && validIdentifier(race.id)) { if (raceIds.has(race.id)) errors.push(`${path}.races contains duplicate race ID ${race.id}`); raceIds.add(race.id); } }); }
   if (isObject(snapshot.schedule) && snapshot.schedule.currentRaceId !== null && Number.isInteger(snapshot.schedule.currentIndex) && snapshot.races?.[snapshot.schedule.currentIndex]?.id !== snapshot.schedule.currentRaceId) errors.push(`${path}.schedule current race does not match current index`);
   if (checkKeys(snapshot.quality, new Set(['state', 'completeRaceCount', 'warnings', 'domains']), `${path}.quality`, errors)) {
     enumValue(snapshot.quality.state, QUALITY_STATES, `${path}.quality.state`, errors);
@@ -223,7 +226,7 @@ export class TrustedStore {
   #record(event) { this.history.push(event); if (this.history.length > this.historyLimit) this.history.shift(); }
   emit(type, data, extra = {}, { broadcast = true, record = true } = {}) { if (!STREAM_TYPES.has(type)) throw new Error(`unsupported stream event type: ${type}`); const event = { type, hubEpoch: this.hubEpoch, eventSessionId: this.eventSessionId ?? null, streamSequence: ++this.streamSequence, deliveredAt: iso(this.now()), data: clone(data), ...extra }; if (record) this.#record(event); if (broadcast) { this.bootstrapCache = null; for (const subscriber of this.subscribers) { try { subscriber(clone(event)); } catch {} } } return clone(event); }
   emitStatus(patch = {}, { force = false } = {}) { const next = { ...this.status, ...patch, event: patch.event ?? this.status.event ?? '', source: patch.source ?? this.status.source ?? '', quality: QUALITY_STATES.has(patch.quality) ? patch.quality : (this.status.quality ?? 'unknown'), connection: STATUS_CONNECTIONS.has(patch.connection) ? patch.connection : (this.status.connection ?? 'disabled') }; const changed = JSON.stringify(next) !== JSON.stringify(this.status); this.status = next; return force || changed ? this.emit('status', this.status) : null; }
-  selectEvent(selection) { const nextId = typeof selection === 'string' ? selection : selection?.eventSessionId; const errors = []; requiredString(nextId, 'eventSessionId', errors, { id: true, max: 128 }); if (errors.length) throw new Error(errors.join(', ')); const changed = this.eventSessionId !== nextId; this.eventSessionId = nextId; this.eventContext = typeof selection === 'string' ? null : clone(selection?.event ?? null); if (!changed) return false; this.snapshot = null; this.trustedSnapshot = null; this.stagedCandidate = null; this.sourceRevisions.clear(); this.announcements.clear(); this.announcementHistory = []; this.emit('reset', { reason: 'event_changed' }); this.emitStatus({ connection: 'joining', source: '', event: this.eventContext?.name ?? '', quality: 'unknown' }); this.#persistSoon(); return true; }
+  selectEvent(selection) { const nextId = typeof selection === 'string' ? selection : selection?.eventSessionId; const errors = []; requiredString(nextId, 'eventSessionId', errors, { id: true, max: 128 }); const nextContext = typeof selection === 'string' ? null : clone(selection?.event ?? null); if (nextContext) validateEvent(nextContext, 'event', errors); if (errors.length) throw new Error(errors.join(', ')); const changed = this.eventSessionId !== nextId; this.eventSessionId = nextId; this.eventContext = nextContext; if (!changed) return false; this.snapshot = null; this.trustedSnapshot = null; this.stagedCandidate = null; this.sourceRevisions.clear(); this.announcements.clear(); this.announcementHistory = []; this.emit('reset', { reason: 'event_changed' }); this.emitStatus({ connection: 'joining', source: '', event: this.eventContext?.name ?? '', quality: 'unknown' }); this.#persistSoon(); return true; }
   deactivateEvent() { if (!this.eventSessionId) return false; this.eventSessionId = null; this.eventContext = null; this.snapshot = null; this.trustedSnapshot = null; this.stagedCandidate = null; this.sourceRevisions.clear(); this.announcements.clear(); this.announcementHistory = []; this.emit('reset', { reason: 'event_changed' }); this.emitStatus({ connection: 'disabled', source: '', event: '', quality: 'unknown' }); this.#persistSoon(); return true; }
   stage(candidate) { if (!this.eventSessionId) throw new Error('no active event'); const result = validateSnapshot(candidate); if (!result.valid) throw new Error(`candidate rejected: ${result.errors.join(', ')}`); if (candidate.eventSessionId !== this.eventSessionId) throw new Error('event session mismatch'); this.stagedCandidate = clone(candidate); return clone(this.stagedCandidate); }
   promote() { if (!this.stagedCandidate) throw new Error('no staged candidate'); const next = clone(this.stagedCandidate); this.stagedCandidate = null; next.activeAnnouncements = this.getActiveAnnouncements(); this.trustedSnapshot = clone(next); this.snapshot = clone(next); this.eventContext ??= clone(next.event); for (const source of next.sources) this.sourceRevisions.set(source.id, source.revision); const event = this.emit('snapshot', next, { snapshotSequence: ++this.snapshotSequence }); this.emitStatus({ connection: 'live', source: next.sources[0]?.provider ?? '', event: next.event.name, quality: next.quality.state, message: '' }); this.#persistSoon(); return event; }

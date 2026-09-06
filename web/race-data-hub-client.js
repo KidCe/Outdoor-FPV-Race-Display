@@ -35,7 +35,7 @@ function uri(value, name, maximum = 2048) {
   string(value, name, { min: 1, max: maximum });
   try {
     const parsed = new URL(value);
-    if (parsed.username || parsed.password || [...parsed.searchParams.keys()].some(key => CREDENTIAL_QUERY_PATTERN.test(key))) throw new Error("credential-bearing URI");
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.hash || [...parsed.searchParams.keys()].some(key => CREDENTIAL_QUERY_PATTERN.test(key))) throw new Error("credential-bearing URI");
   } catch { throw new Error(`Hub ${name} is invalid.`); }
   return value;
 }

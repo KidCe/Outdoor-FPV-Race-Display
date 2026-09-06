@@ -77,6 +77,8 @@ test('validator enforces the frozen public shape and identity invariant', async 
   assert.equal(validateSnapshot({ ...fresh, unexpected: true }).valid, false);
   assert.equal(validateSnapshot({ ...fresh, schedule: { ...fresh.schedule, currentRaceId: 'missing' } }).valid, false);
   assert.equal(validateSnapshot({ ...fresh, races: [{ ...fresh.races[0], status: 'racing' }] }).valid, false);
+  assert.equal(validateSnapshot({ ...fresh, races: [fresh.races[0], { ...fresh.races[1], id: fresh.races[0].id }] }).valid, false);
+  assert.equal(validateSnapshot({ ...fresh, event: { ...fresh.event, sourceUrl: 'https://user:pass@host/live/scoring/' } }).valid, false);
 });
 
 test('trusted store requires explicit selection, sequences snapshots, and makes stale idempotent', async () => {
@@ -189,6 +191,9 @@ test('local Hub Admin surface serves diagnostics and protects event selection/de
     assert.equal(store.active, true);
     const deactivated = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event/deactivate`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: '{}' });
     assert.equal(deactivated.status, 200);
+    assert.equal(store.active, false);
+    const unsafe = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: JSON.stringify({ eventSessionId: 'unsafe-session', event: { id: 'unsafe-event', name: 'Unsafe', sourceUrl: 'https://user:pass@host/live/scoring/' } }) });
+    assert.equal(unsafe.status, 400);
     assert.equal(store.active, false);
   } finally {
     await close(server);
