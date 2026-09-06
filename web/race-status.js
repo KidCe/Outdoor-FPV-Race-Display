@@ -14,19 +14,11 @@ const RACE_STATUS_LABELS = Object.freeze({
 
 const STATUS_ALIASES = new Map([
   ["staging", RACE_STATUS.STAGING],
-  ["staged", RACE_STATUS.STAGING],
-  ["stage", RACE_STATUS.STAGING],
   ["ready", RACE_STATUS.STAGING],
   ["running", RACE_STATUS.RUNNING],
   ["racing", RACE_STATUS.RUNNING],
-  ["active", RACE_STATUS.RUNNING],
-  ["in_progress", RACE_STATUS.RUNNING],
-  ["inprogress", RACE_STATUS.RUNNING],
   ["complete", RACE_STATUS.COMPLETE],
-  ["completed", RACE_STATUS.COMPLETE],
-  ["finished", RACE_STATUS.COMPLETE],
-  ["finish", RACE_STATUS.COMPLETE],
-  ["done", RACE_STATUS.COMPLETE]
+  ["completed", RACE_STATUS.COMPLETE]
 ]);
 
 function statusKey(value) {

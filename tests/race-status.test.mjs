@@ -23,6 +23,9 @@ test("status mapping presents canonical and legacy source values consistently", 
     assert.equal(presentRaceStatus(raw), label);
   }
   assert.equal(presentRaceStatus("not-run"), "UNKNOWN");
+  assert.equal(presentRaceStatus("active"), "UNKNOWN");
+  assert.equal(presentRaceStatus("in_progress"), "UNKNOWN");
+  assert.equal(presentRaceStatus("finished"), "UNKNOWN");
   assert.equal(presentRaceStatus(null), "UNKNOWN");
   assert.equal(presentRaceStatus("network disconnected"), "UNKNOWN");
 });
