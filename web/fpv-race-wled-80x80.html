@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080b0d">
-  <title>FPV Race Display Control Desk</title><link rel="stylesheet" href="./web/race-day-control-desk.css">
+  <title>FPV Race Display Control Desk</title><link rel="stylesheet" href="./web/race-day-control-desk.css"><link rel="stylesheet" href="./web/hub-announcements.css">
 </head>
 <body>
 <main id="app" class="app">
   <header class="topbar">
     <div class="brand"><p class="eyebrow">FPV Race WLED Display</p><h1>Race Display Control Desk</h1><p id="eventName" class="muted small">Waiting for a LiveTime event</p></div>
     <div class="status-cluster" aria-label="Connection status">
-      <span class="status-chip"><i id="sourceDot" class="dot"></i><strong>LiveTime</strong><span id="sourceChip">disabled</span></span>
+      <span class="status-chip"><i id="sourceDot" class="dot"></i><strong id="sourceLabel">LiveTime</strong><span id="sourceChip">disabled</span></span>
       <span class="status-chip"><i id="outputDot" class="dot"></i><strong>Display</strong><span id="outputChip">disabled</span></span>
       <span class="status-chip"><i id="liveDot" class="dot"></i><strong>Live output</strong><span id="liveChip">off</span></span>
     </div>
@@ -25,6 +25,7 @@
     </div>
     <div id="heatQueue" class="heat-queue"><p class="notice">Enable the LiveTime source to load the current and upcoming heats.</p></div>
   </section>
+  <section class="panel announcement-panel" aria-labelledby="announcementTitle"><div class="heat-strip-head"><div><p class="eyebrow">Race Data Hub</p><h2 id="announcementTitle">Announcements</h2></div></div><div id="hubAnnouncements" class="hub-announcements"><p class="notice">No active announcements.</p></div></section>
 
   <section class="desk">
     <article class="panel desk-panel">
@@ -46,7 +47,7 @@
 
   <section class="settings" aria-label="Configuration">
     <details><summary>LiveTime source settings</summary><div class="details-body"><div class="settings-grid">
-      <label class="field">LiveFPV event URL<input id="eventUrl" type="url" placeholder="https://organization.livefpv.com/"></label><label class="field">Connector URL<input id="connectorUrl" type="url" placeholder="http://localhost:4174"></label><label class="field">HTTP reconciliation interval<input id="reconcileSeconds" type="number" min="10" max="300" step="5"></label>
+      <label class="field">LiveFPV event URL<input id="eventUrl" type="url" placeholder="https://organization.livefpv.com/"></label><label class="field">Legacy connector URL<input id="connectorUrl" type="url" placeholder="http://localhost:4174"></label><label class="field">Race Data Hub URL (optional)<input id="hubUrl" type="url" placeholder="http://localhost:4175"></label><label class="field">HTTP reconciliation interval<input id="reconcileSeconds" type="number" min="10" max="300" step="5"></label>
     </div><p class="notice">The live stream reconnects automatically. HTTP reconciliation keeps the trusted schedule aligned if an event packet is missed.</p><div class="actions"><button id="clearTrustedData" class="action danger" type="button">Clear trusted race data</button></div></div></details>
 
     <details><summary>Display output settings</summary><div class="details-body"><div class="settings-grid">

@@ -2,6 +2,7 @@ import { DisplayScene, projectRaceSchedule } from "./display-scene.js";
 import { OutputSession } from "./output-session.js";
 import { RaceDayProfile } from "./race-day-profile.js";
 import { RaceSourceRuntime } from "./race-source-runtime.js";
+import { ANNOUNCEMENT_DISPLAY_MS } from "./race-data-hub-client.js";
 
 const byId = id => document.getElementById(id);
 const VIEW_LABELS = { current: "Current Heat", staging: "Next Up", next: "After Next" };
@@ -27,6 +28,13 @@ function download(name, type, contents) {
 
 function setDot(element, kind) { element.className = `dot ${kind || ""}`; }
 
+function textElement(tagName, className, value) {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = String(value ?? "");
+  return element;
+}
+
 export class RaceDayAppHost {
   constructor() {
     this.profileStore = new RaceDayProfile();
@@ -46,6 +54,8 @@ export class RaceDayAppHost {
     this.cycleTimer = 0;
     this.cycleTicker = 0;
     this.nextCycleAt = 0;
+    this.announcementTimers = new Map();
+    this.hiddenAnnouncements = new Set();
   }
 
   async start() {
@@ -77,7 +87,32 @@ export class RaceDayAppHost {
 
   onSourceState(state) {
     this.sourceState = state;
+    this.renderAnnouncements(state.announcements || []);
     this.renderAll();
+  }
+
+  renderAnnouncements(announcements) {
+    const container = byId("hubAnnouncements");
+    if (!container) return;
+    const activeIds = new Set(announcements.map(announcement => announcement.announcementId));
+    for (const id of this.hiddenAnnouncements) if (!activeIds.has(id)) this.hiddenAnnouncements.delete(id);
+    for (const [id, timer] of this.announcementTimers) if (!activeIds.has(id)) { clearTimeout(timer); this.announcementTimers.delete(id); }
+    container.replaceChildren();
+    const visible = announcements.filter(announcement => announcement.importance === 3 || !this.hiddenAnnouncements.has(announcement.announcementId));
+    if (!visible.length) { container.innerHTML = '<p class="notice">No active announcements.</p>'; return; }
+    for (const announcement of visible) {
+      const item = document.createElement("article");
+      item.className = `hub-announcement importance-${announcement.importance}${announcement.importance === 3 ? " persistent" : ""}`;
+      item.innerHTML = "<strong></strong><p></p><small></small>";
+      item.querySelector("strong").textContent = announcement.title;
+      item.querySelector("p").textContent = announcement.body;
+      item.querySelector("small").textContent = announcement.importance === 3 ? "Persistent until cleared" : announcement.importance === 2 ? "Time-limited notification" : "Short notification";
+      container.append(item);
+      if (announcement.importance !== 3 && !this.announcementTimers.has(announcement.announcementId)) {
+        const timer = setTimeout(() => { this.hiddenAnnouncements.add(announcement.announcementId); this.announcementTimers.delete(announcement.announcementId); this.renderAnnouncements(this.sourceState.announcements || []); }, ANNOUNCEMENT_DISPLAY_MS[announcement.importance]);
+        this.announcementTimers.set(announcement.announcementId, timer);
+      }
+    }
   }
 
   onOutputState(state) {
@@ -90,13 +125,27 @@ export class RaceDayAppHost {
     if (!snapshot) {
       this.currentScene = null;
       this.renderWaitingPreview();
-      byId("heatQueue").innerHTML = '<p class="notice">Enable the LiveTime source to load the current and upcoming heats.</p>';
-      byId("pilotList").innerHTML = '<p class="notice">No pilot data loaded.</p>';
-      byId("eventName").textContent = "Waiting for a LiveTime event";
+      const sourceName = this.profile.source.hubUrl ? "Race Data Hub" : "LiveTime";
+      byId("heatQueue").replaceChildren(textElement("p", "notice", `Enable the ${sourceName} source to load the current and upcoming heats.`));
+      byId("pilotList").replaceChildren(textElement("p", "notice", "No pilot data loaded."));
+      byId("eventName").textContent = `Waiting for a ${sourceName} event`;
       byId("viewLabel").textContent = "No active heat";
       byId("raceTitle").textContent = "—";
       byId("raceState").textContent = this.sourceState.error || "Waiting for trusted data";
       this.renderStatus();
+      return;
+    }
+    if (snapshot.schedule?.currentRaceId === null) {
+      this.currentScene = null;
+      this.renderWaitingPreview();
+      byId("heatQueue").replaceChildren(textElement("p", "notice", "No active heat is selected by the Race Data Hub."));
+      byId("pilotList").replaceChildren(textElement("p", "notice", "No pilot data loaded."));
+      byId("eventName").textContent = snapshot.event?.name || "No active event";
+      byId("viewLabel").textContent = "No active heat";
+      byId("raceTitle").textContent = "—";
+      byId("raceState").textContent = snapshot.quality?.state === "stale" ? "No active heat · stale Hub data" : "No active heat";
+      this.renderStatus();
+      this.configureCycle();
       return;
     }
     try {
@@ -130,7 +179,7 @@ export class RaceDayAppHost {
     context.fillStyle = "#5e686e";
     context.font = "bold 19px ui-monospace, monospace";
     context.textAlign = "center";
-    context.fillText("WAITING FOR LIVETIME", 240, 232);
+    context.fillText("WAITING FOR RACE DATA", 240, 232);
     context.font = "14px ui-monospace, monospace";
     context.fillText("LAST TRUSTED DATA WILL STAY VISIBLE", 240, 262);
     byId("previewFit").textContent = "No trusted scene";
@@ -138,12 +187,45 @@ export class RaceDayAppHost {
   }
 
   renderPilots(pilots) {
-    byId("pilotList").innerHTML = pilots.length ? pilots.map(pilot => `<div class="pilot-row"><span class="pilot-channel" style="color:${pilot.color}">${pilot.channel || "—"}</span><span class="pilot-name">${pilot.callsign}</span><span class="pilot-frequency">${pilot.frequencyMHz || "—"}</span></div>`).join("") : '<p class="notice">No pilots assigned to this heat.</p>';
+    const container = byId("pilotList");
+    container.replaceChildren();
+    if (!pilots.length) { container.append(textElement("p", "notice", "No pilots assigned to this heat.")); return; }
+    for (const pilot of pilots) {
+      const row = textElement("div", "pilot-row");
+      const channel = textElement("span", "pilot-channel", pilot.channel || "—");
+      channel.style.color = pilot.color || "";
+      row.append(channel, textElement("span", "pilot-name", pilot.callsign), textElement("span", "pilot-frequency", pilot.frequencyMHz ?? "—"));
+      container.append(row);
+    }
   }
 
   renderHeatQueue(schedule) {
     const labels = ["Current", "Next one", "After that"];
-    byId("heatQueue").innerHTML = schedule.map((race, index) => `<button class="heat-block ${this.selectedView === (index === 0 ? "current" : index === 1 ? "staging" : "next") ? "active" : ""}" type="button" data-queue-view="${index === 0 ? "current" : index === 1 ? "staging" : "next"}"><span class="heat-block-kicker"><span>${labels[index]}</span><span>${race.status}</span></span><h3>${race.round} · ${race.heat}</h3><span class="mini-pilots">${race.pilots.map(pilot => `<span class="mini-pilot"><b style="color:${pilot.color}">${pilot.channel || "—"}</b>${pilot.callsign}</span>`).join("") || '<span class="mini-pilot">No pilots assigned</span>'}</span></button>`).join("");
+    const container = byId("heatQueue");
+    container.replaceChildren();
+    for (const [index, race] of schedule.entries()) {
+      const view = index === 0 ? "current" : index === 1 ? "staging" : "next";
+      const button = textElement("button", `heat-block${this.selectedView === view ? " active" : ""}`);
+      button.type = "button";
+      button.dataset.queueView = view;
+      const kicker = textElement("span", "heat-block-kicker");
+      kicker.append(textElement("span", "", labels[index] || "Upcoming"), textElement("span", "", race.status));
+      const title = textElement("h3", "", `${race.round} · ${race.heat}`);
+      const pilotList = textElement("span", "mini-pilots");
+      if (race.pilots.length) {
+        for (const pilot of race.pilots) {
+          const miniPilot = textElement("span", "mini-pilot");
+          const channel = textElement("b", "", pilot.channel || "—");
+          channel.style.color = pilot.color || "";
+          miniPilot.append(channel, textElement("span", "", pilot.callsign));
+          pilotList.append(miniPilot);
+        }
+      } else {
+        pilotList.append(textElement("span", "mini-pilot", "No pilots assigned"));
+      }
+      button.append(kicker, title, pilotList);
+      container.append(button);
+    }
   }
 
   publishScene() {
@@ -156,20 +238,23 @@ export class RaceDayAppHost {
   renderStatus() {
     const source = this.sourceState;
     const output = this.outputState;
+    byId("sourceLabel").textContent = this.profile.source.hubUrl ? "Race Data Hub" : "LiveTime";
     const sourceKind = source.connection === "connected" ? "ok" : source.connection === "reconnecting" || source.connection === "degraded" || source.snapshot ? "warn" : source.connection === "error" ? "error" : "";
     setDot(byId("sourceDot"), sourceKind);
-    byId("sourceChip").textContent = source.connection;
+    byId("sourceChip").textContent = `${source.connection}${source.quality && source.quality !== "unknown" ? ` · ${source.quality}` : ""}`;
     const outputKind = output.connection === "connected" ? "ok" : output.connection === "reconnecting" || output.connection === "connecting" ? "warn" : output.connection === "error" ? "error" : "";
     setDot(byId("outputDot"), outputKind);
     byId("outputChip").textContent = output.connection;
     setDot(byId("liveDot"), output.controlling ? "ok" : this.profile.output.live ? "warn" : "");
     byId("liveChip").textContent = output.controlling ? "active" : this.profile.output.live ? "waiting" : "off";
-    const ageMs = source.lastDataAt ? Date.now() - source.lastDataAt : NaN;
+    const ageReference = source.sourceCapturedAt ? Date.parse(source.sourceCapturedAt) : source.lastDataAt;
+    const ageMs = ageReference ? Date.now() - ageReference : NaN;
     byId("sourceAge").textContent = elapsed(ageMs);
     byId("transportLabel").textContent = this.profile.output.transport === "usb" ? "USB serial" : "Wireless WLED";
     byId("schemaState").textContent = output.schema || "Not installed";
     byId("lastDisplayUpdate").textContent = output.lastUpdateAt ? elapsed(Date.now() - output.lastUpdateAt) : "Never";
-    byId("sessionMessage").textContent = source.error ? `LiveTime: ${source.error} Last trusted data remains visible. ${output.message}` : output.message;
+    const sourceName = this.profile.source.hubUrl ? "Race Data Hub" : "LiveTime";
+    byId("sessionMessage").textContent = source.error ? `${sourceName}: ${source.error} Last trusted data remains visible. ${output.message}` : output.message;
     byId("sessionMessage").className = `session-message${source.error || output.connection === "error" ? " notice error" : ""}`;
     byId("stopClear").disabled = output.connection !== "connected";
     byId("readFrame").disabled = output.connection !== "connected";
@@ -206,6 +291,7 @@ export class RaceDayAppHost {
     byId("sourceEnabled").checked = source.enabled;
     byId("eventUrl").value = source.eventUrl;
     byId("connectorUrl").value = source.connectorUrl || globalThis.location.origin;
+    byId("hubUrl").value = source.hubUrl || "";
     byId("reconcileSeconds").value = source.reconcileSeconds;
     byId("outputEnabled").checked = output.enabled;
     byId("liveOutput").checked = output.live;
@@ -255,7 +341,7 @@ export class RaceDayAppHost {
     byId("clearTrustedData").addEventListener("click", () => this.sourceRuntime.clearTrustedSnapshot());
     byId("outputEnabled").addEventListener("change", async event => { this.updateProfile({ output: { enabled: event.target.checked } }); await this.outputSession.setEnabled(event.target.checked, { interactive: true }); });
     byId("liveOutput").addEventListener("change", event => { this.updateProfile({ output: { live: event.target.checked } }); this.outputSession.setLive(event.target.checked); });
-    for (const [id, key, number] of [["eventUrl", "eventUrl"], ["connectorUrl", "connectorUrl"], ["reconcileSeconds", "reconcileSeconds", true]]) byId(id).addEventListener("change", event => this.updateProfile({ source: { [key]: number ? Number(event.target.value) : event.target.value } }));
+    for (const [id, key, number] of [["eventUrl", "eventUrl"], ["connectorUrl", "connectorUrl"], ["hubUrl", "hubUrl"], ["reconcileSeconds", "reconcileSeconds", true]]) byId(id).addEventListener("change", event => this.updateProfile({ source: { [key]: number ? Number(event.target.value) : event.target.value } }));
     for (const [id, key, number] of [["transport", "transport"], ["wledUrl", "wledUrl"], ["serialBaud", "serialBaud", true], ["schemaId", "schemaId"], ["brightness", "brightness", true], ["backgroundEffect", "backgroundEffect", true]]) byId(id).addEventListener("input", event => this.updateProfile({ output: { [key]: number ? Number(event.target.value) : event.target.value } }));
     byId("cycleEnabled").addEventListener("change", event => { this.updateProfile({ cycle: { enabled: event.target.checked } }); this.configureCycle(); });
     byId("cycleSeconds").addEventListener("change", event => { this.updateProfile({ cycle: { seconds: Number(event.target.value) } }); this.configureCycle(); });

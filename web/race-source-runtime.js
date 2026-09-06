@@ -1,4 +1,5 @@
 import { createRaceEventStreamUrl, fetchRaceEventSnapshot, validateRaceEventSnapshot } from "./race-event-connector.js";
+import { RaceDataHubClient } from "./race-data-hub-client.js";
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -35,8 +36,9 @@ export class RecordedRaceSourceAdapter {
 }
 
 export class RaceSourceRuntime {
-  constructor({ adapter = new HttpRaceSourceAdapter(), onState = () => {}, now = () => Date.now(), storage = globalThis.localStorage, storageKey = "fpv-race-source-trusted-v1" } = {}) {
+  constructor({ adapter = new HttpRaceSourceAdapter(), hubClientFactory = options => new RaceDataHubClient(options), onState = () => {}, now = () => Date.now(), storage = globalThis.localStorage, storageKey = "fpv-race-source-trusted-v1" } = {}) {
     this.adapter = adapter;
+    this.hubClientFactory = hubClientFactory;
     this.onState = onState;
     this.now = now;
     this.config = {};
@@ -49,7 +51,8 @@ export class RaceSourceRuntime {
     this.abortController = null;
     this.storage = storage;
     this.storageKey = storageKey;
-    this.state = { connection: "disabled", snapshot: null, lastDataAt: null, error: "" };
+    this.state = { connection: "disabled", snapshot: null, lastDataAt: null, error: "", announcements: [], quality: "unknown" };
+    this.hubClient = null;
     try {
       const cached = JSON.parse(this.storage?.getItem(this.storageKey) || "null");
       if (cached?.snapshot) {
@@ -70,12 +73,15 @@ export class RaceSourceRuntime {
 
   clearTrustedSnapshot() {
     try { this.storage?.removeItem(this.storageKey); } catch {}
-    this.setState({ snapshot: null, lastDataAt: null, error: this.enabled ? this.state.error : "" });
+    try { this.storage?.removeItem("fpv-race-hub-trusted-v1"); } catch {}
+    this.hubClient?.clearTrustedSnapshot?.();
+    this.setState({ snapshot: null, lastDataAt: null, sourceCapturedAt: null, announcements: [], quality: "unknown", error: this.enabled ? this.state.error : "" });
   }
 
   configure(config) {
     const next = {
       connectorUrl: String(config.connectorUrl || "").trim(),
+      hubUrl: String(config.hubUrl || "").trim(),
       sourceUrl: String(config.sourceUrl || config.eventUrl || "").trim(),
       reconcileSeconds: Math.max(10, Number(config.reconcileSeconds) || 30)
     };
@@ -95,6 +101,19 @@ export class RaceSourceRuntime {
     this.enabled = true;
     const generation = ++this.generation;
     this.setState({ connection: "connecting", error: "" });
+    if (this.config.hubUrl) {
+      try {
+        const hub = this.hubClientFactory({ hubUrl: this.config.hubUrl, storage: this.storage, now: this.now, onState: state => { if (generation !== this.generation || !this.enabled) return; this.setState({ connection: state.connection === "live" ? "connected" : state.connection, snapshot: state.snapshot, lastDataAt: state.lastDataAt, sourceCapturedAt: state.sourceCapturedAt, error: state.error, announcements: state.announcements, quality: state.quality }); } });
+        this.hubClient = hub;
+        const hubState = hub.getState();
+        this.setState({ connection: hubState.connection === "live" ? "connected" : hubState.connection, snapshot: hubState.snapshot, lastDataAt: hubState.lastDataAt, sourceCapturedAt: hubState.sourceCapturedAt, error: hubState.error, announcements: hubState.announcements, quality: hubState.quality });
+        this.unsubscribeStream = () => hub.close();
+        await hub.connect();
+      } catch (error) {
+        if (generation === this.generation && this.enabled) this.setState({ connection: this.state.snapshot ? "reconnecting" : "error", error: error.message });
+      }
+      return;
+    }
     await this.refresh(generation);
     if (this.enabled && generation === this.generation) this.openStream(generation);
     if (this.enabled && generation === this.generation) {
@@ -111,6 +130,7 @@ export class RaceSourceRuntime {
     this.unsubscribeStream?.();
     this.unsubscribeStream = null;
     this.abortController?.abort();
+    this.hubClient = null;
     this.abortController = null;
     if (markDisabled) {
       this.enabled = false;

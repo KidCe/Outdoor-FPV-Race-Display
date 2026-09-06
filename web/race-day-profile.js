@@ -30,6 +30,7 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
   version: RACE_DAY_PROFILE_VERSION,
   source: {
     connectorUrl: "",
+    hubUrl: "",
     eventUrl: "https://rotormaniacs.livefpv.com/",
     enabled: false,
     reconcileSeconds: 30
@@ -136,6 +137,7 @@ export function validateRaceDayProfile(candidate) {
   if (candidate.version !== RACE_DAY_PROFILE_VERSION) throw new Error("Unsupported race-day profile version.");
   const profile = merge(DEFAULT_RACE_DAY_PROFILE, candidate);
   profile.source.connectorUrl = String(profile.source.connectorUrl || "").trim();
+  profile.source.hubUrl = String(profile.source.hubUrl || "").trim();
   profile.source.eventUrl = String(profile.source.eventUrl || "").trim();
   profile.source.enabled = Boolean(profile.source.enabled);
   profile.source.reconcileSeconds = boundedNumber(profile.source.reconcileSeconds, 30, 10, 300);

@@ -20,6 +20,7 @@ An 80×80 FPV race status display for WLED HUB75 builds. The compact **Race Disp
 - Rainbow and subtle sparkle effects are available behind the WebUI's discreet, persistent **Special mode** switch, keeping the default race-day interface focused.
 - Animated header arrows communicate race state at a glance: inward arrows for the current heat, upward arrows for a staged heat, right arrows for next up, and double right arrows for the following heat.
 - A versioned LiveTimeQue connector loads the current heat, pilot callsigns, video channels, and frequencies from the reusable FPV Race Event Data v1 snapshot format. The browser keeps the last valid state if a refresh fails.
+- An optional Race Data Hub URL switches the source seam to `/api/v1/snapshot` plus the versioned SSE stream. The legacy connector remains available during migration, and Hub announcements retain their event identity and importance.
 - A compact queue verification strip shows Current, Next One, and After That with their pilots and channels. An optional interval cycles the matrix between Current Heat and Next Up while a race is running.
 - Current Heat, Staging Heat, and Next Up have independent semantic appearance presets. Their geometry is compiled into one stable schema, so normal heat, round, pilot, and channel changes do not trigger a schema reinstall.
 - A portable versioned race-day profile stores presets, channel colors, source settings, and output settings, with import/export and migration from the former prototype settings.
