@@ -99,6 +99,34 @@ test('trusted store requires explicit selection, sequences snapshots, and makes 
   assert.equal(store.active, false);
 });
 
+test('trusted store rejects a candidate whose event identity conflicts with selected context before persistence', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'race-event-isolation-'));
+  const path = join(directory, 'trusted.json');
+  try {
+    const fresh = await fixture('snapshot-fresh.json');
+    const store = new TrustedStore({ epoch: 'event-isolation-epoch', persistencePath: path });
+    store.selectEvent({ eventSessionId: fresh.eventSessionId, event: { id: 'selected-event', name: 'Selected event' } });
+    assert.throws(() => store.publish(fresh), /event context mismatch/);
+    assert.equal(store.snapshot, null);
+    assert.equal(store.trustedSnapshot, null);
+    await store.save();
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).trustedSnapshot, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('same-session selection rejects changed context and preserves context-free selection support', async () => {
+  const fresh = await fixture('snapshot-fresh.json');
+  const store = new TrustedStore({ epoch: 'event-selection-epoch' });
+  store.selectEvent(fresh.eventSessionId);
+  store.publish(fresh);
+  assert.deepEqual(store.eventContext, fresh.event);
+  assert.throws(() => store.selectEvent({ eventSessionId: fresh.eventSessionId, event: { id: 'other-event', name: 'Other event' } }), /event context mismatch/);
+  assert.deepEqual(store.eventContext, fresh.event);
+  assert.equal(store.snapshot.snapshotId, fresh.snapshotId);
+});
+
 test('persisted recovery cross-checks event identity and restores only as stale', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'race-hub-'));
   const path = join(directory, 'trusted.json');
