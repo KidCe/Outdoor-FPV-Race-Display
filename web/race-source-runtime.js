@@ -3,6 +3,8 @@ import { RaceDataHubClient, getActiveRaceStatus } from "./race-data-hub-client.j
 import { RACE_STATUS, mapRaceStatus } from "./race-status.js";
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
+const DONE_DISPLAY_GRACE_MS = 15_000;
+const ACTIVE_STATUSES = new Set([RACE_STATUS.STAGING, RACE_STATUS.RUNNING]);
 
 function raceTrustKey(snapshot, race) {
   return JSON.stringify([snapshot.eventSessionId || "event-session", snapshot.event?.id || "event", race.id]);
@@ -25,6 +27,69 @@ function preserveNewerStatuses(snapshot, trustedStatuses, acceptedAt) {
     if (preserved.quality?.state !== "fresh" || trusted.observedAt >= incomingAt) race.status = trusted.rawStatus;
   }
   return preserved;
+}
+
+function isTerminalRace(race) {
+  const status = mapRaceStatus(race?.status);
+  return status === RACE_STATUS.COMPLETE || ["cancelled", "canceled"].includes(String(race?.status || "").trim().toLowerCase());
+}
+
+function sameContinuationGroup(current, successor) {
+  const currentRound = String(current?.round || "").trim().toLowerCase();
+  const successorRound = String(successor?.round || "").trim().toLowerCase();
+  return Boolean(currentRound && successorRound && currentRound === successorRound);
+}
+
+function safeScheduledSuccessorIndex(snapshot, currentRace) {
+  const successorId = snapshot.schedule?.nextRaceIds?.[0];
+  if (!successorId) return -1;
+  const successorIndex = snapshot.races.findIndex(race => race?.id === successorId);
+  const successor = successorIndex >= 0 ? snapshot.races[successorIndex] : null;
+  if (!successor || isTerminalRace(successor) || !sameContinuationGroup(currentRace, successor)) return -1;
+  return successorIndex;
+}
+
+function scheduleWithCurrent(snapshot, currentIndex) {
+  const schedule = snapshot.schedule;
+  const currentRaceId = snapshot.races[currentIndex]?.id;
+  const orderedIds = [schedule.currentRaceId, ...(schedule.nextRaceIds || []), ...(schedule.afterNextRaceIds || [])].filter(Boolean);
+  const selectedPosition = orderedIds.indexOf(currentRaceId);
+  const next = { ...schedule, currentRaceId, currentIndex };
+  if (selectedPosition >= 0) {
+    const following = [...new Set(orderedIds.slice(selectedPosition + 1))];
+    const nextCount = Array.isArray(schedule.nextRaceIds) ? schedule.nextRaceIds.length : 0;
+    const afterNextCount = Array.isArray(schedule.afterNextRaceIds) ? schedule.afterNextRaceIds.length : 0;
+    next.nextRaceIds = following.slice(0, nextCount);
+    if (Array.isArray(schedule.afterNextRaceIds)) next.afterNextRaceIds = following.slice(nextCount, nextCount + afterNextCount);
+  }
+  return { ...snapshot, schedule: next };
+}
+
+function prioritizeCurrentRace(snapshot, now) {
+  if (!snapshot?.schedule || !Array.isArray(snapshot.races)) return snapshot;
+  const currentIndex = snapshot.races.findIndex(race => race?.id === snapshot.schedule.currentRaceId);
+  if (currentIndex < 0) return snapshot;
+
+  const currentRace = snapshot.races[currentIndex];
+  const currentStatus = mapRaceStatus(currentRace.status);
+  let selectedIndex = currentIndex;
+  if (!ACTIVE_STATUSES.has(currentStatus)) {
+    const runningIndex = snapshot.races.findIndex(race => mapRaceStatus(race?.status) === RACE_STATUS.RUNNING);
+    const stagingIndex = snapshot.races.findIndex(race => mapRaceStatus(race?.status) === RACE_STATUS.STAGING);
+    selectedIndex = runningIndex >= 0 ? runningIndex : stagingIndex;
+    if (selectedIndex < 0) selectedIndex = currentIndex;
+  }
+
+  if (selectedIndex === currentIndex && currentStatus === RACE_STATUS.COMPLETE) {
+    const completedAt = Date.parse(currentRace.timing?.stoppedAt || currentRace.timing?.capturedAt || snapshot.capturedAt || "");
+    const age = Number(now) - completedAt;
+    if (Number.isFinite(completedAt) && age > DONE_DISPLAY_GRACE_MS) {
+      const successorIndex = safeScheduledSuccessorIndex(snapshot, currentRace);
+      if (successorIndex >= 0) selectedIndex = successorIndex;
+    }
+  }
+
+  return selectedIndex === currentIndex ? snapshot : scheduleWithCurrent(snapshot, selectedIndex);
 }
 
 export class HttpRaceSourceAdapter {
@@ -137,10 +202,11 @@ export class RaceSourceRuntime {
     this.setState({ connection: "connecting", error: "" });
     if (this.config.hubUrl) {
       try {
-        const hub = this.hubClientFactory({ hubUrl: this.config.hubUrl, storage: this.storage, now: this.now, onState: state => { if (generation !== this.generation || !this.enabled) return; this.setState({ connection: state.connection === "live" ? "connected" : state.connection, snapshot: state.snapshot, raceStatus: state.raceStatus ?? getActiveRaceStatus(state.snapshot), lastDataAt: state.lastDataAt, sourceCapturedAt: state.sourceCapturedAt, error: state.error, announcements: state.announcements, quality: state.quality }); } });
+        const hub = this.hubClientFactory({ hubUrl: this.config.hubUrl, storage: this.storage, now: this.now, onState: state => { if (generation !== this.generation || !this.enabled) return; const snapshot = prioritizeCurrentRace(state.snapshot, this.now()); this.setState({ connection: state.connection === "live" ? "connected" : state.connection, snapshot, raceStatus: getActiveRaceStatus(snapshot) ?? state.raceStatus, lastDataAt: state.lastDataAt, sourceCapturedAt: state.sourceCapturedAt, error: state.error, announcements: state.announcements, quality: state.quality }); } });
         this.hubClient = hub;
         const hubState = hub.getState();
-        this.setState({ connection: hubState.connection === "live" ? "connected" : hubState.connection, snapshot: hubState.snapshot, raceStatus: hubState.raceStatus ?? getActiveRaceStatus(hubState.snapshot), lastDataAt: hubState.lastDataAt, sourceCapturedAt: hubState.sourceCapturedAt, error: hubState.error, announcements: hubState.announcements, quality: hubState.quality });
+        const snapshot = prioritizeCurrentRace(hubState.snapshot, this.now());
+        this.setState({ connection: hubState.connection === "live" ? "connected" : hubState.connection, snapshot, raceStatus: getActiveRaceStatus(snapshot) ?? hubState.raceStatus, lastDataAt: hubState.lastDataAt, sourceCapturedAt: hubState.sourceCapturedAt, error: hubState.error, announcements: hubState.announcements, quality: hubState.quality });
         this.unsubscribeStream = () => hub.close();
         await hub.connect();
       } catch (error) {
@@ -233,7 +299,7 @@ export class RaceSourceRuntime {
     const trusted = validateRaceEventSnapshot(snapshot);
     if (this.state.snapshot?.eventSessionId && this.state.snapshot.eventSessionId !== trusted.eventSessionId) this.trustedStatuses.clear();
     const acceptedAt = this.now();
-    const next = origin === "live" ? trusted : preserveNewerStatuses(trusted, this.trustedStatuses, acceptedAt);
+    const next = prioritizeCurrentRace(origin === "live" ? trusted : preserveNewerStatuses(trusted, this.trustedStatuses, acceptedAt), acceptedAt);
     if (origin === "live" || trusted.quality?.state === "fresh") this.rememberStatuses(next, acceptedAt);
     this.retryAttempt = 0;
     try { this.storage?.setItem(this.storageKey, JSON.stringify({ snapshot: next, lastDataAt: acceptedAt })); } catch {}
