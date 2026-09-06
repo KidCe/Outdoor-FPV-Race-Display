@@ -1,8 +1,14 @@
 import { validateRaceEventSnapshot } from "./race-event-connector.js";
-import { mapRaceStatus, presentRaceStatus } from "./race-status.js";
+import { RACE_STATUS, mapRaceStatus, presentRaceStatus } from "./race-status.js";
 
 const VIEW_ORDER = ["current", "staging", "next"];
 const MAX_5X7_TEXT_CHARACTERS = 40;
+const MATRIX_PRESET_BY_STATUS = Object.freeze({
+  [RACE_STATUS.STAGING]: "staging",
+  [RACE_STATUS.RUNNING]: "current",
+  // A completed current heat points toward the next heat.
+  [RACE_STATUS.COMPLETE]: "next"
+});
 
 const FIVE_BY_SEVEN_GLYPHS = new Set(" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-:.|_+=><!?");
 const FIVE_BY_SEVEN_FALLBACKS = Object.freeze({
@@ -100,6 +106,11 @@ export function projectRaceSchedule(snapshot, profile, { limit = 4 } = {}) {
   });
 }
 
+function matrixPresetKeyFor(race, view) {
+  if (view === "next") return "next";
+  return MATRIX_PRESET_BY_STATUS[race?.status] || (view === "staging" ? "staging" : "current");
+}
+
 function projectRace(snapshot, profile, race, presetKey) {
   const status = mapRaceStatus(race.status);
   return {
@@ -188,6 +199,7 @@ export class DisplayScene {
     const index = view === "current" ? 0 : view === "staging" ? 1 : 2;
     const race = schedule[index] || null;
     const presetKey = VIEW_ORDER[Math.min(index, 2)];
+    const matrixPresetKey = race ? matrixPresetKeyFor(race, view) : presetKey;
     return {
       snapshotId: snapshot.snapshotId,
       capturedAt: snapshot.capturedAt,
@@ -196,17 +208,22 @@ export class DisplayScene {
       view,
       race: race ? { ...race, presetKey } : null,
       preset: this.profile.display.presets[presetKey],
-      header: race ? `${race.statusLabel} ${race.heat}`.trim().toUpperCase() : ""
+      header: race ? `${race.statusLabel} ${race.heat}`.trim().toUpperCase() : "",
+      matrixHeader: race ? race.heat : "",
+      matrixPresetKey,
+      matrixPreset: this.profile.display.presets[matrixPresetKey]
     };
   }
 
   getState(scene) {
     const values = [];
     const activePresetKey = scene.race?.presetKey || null;
+    const matrixPresetKey = scene.matrixPresetKey || activePresetKey;
+    const matrixHeader = scene.matrixHeader ?? scene.header;
     for (const key of VIEW_ORDER) {
       const preset = this.profile.display.presets[key];
-      values.push({ key: `header-${key}`, text: displayTextFor5x7(scene.header), color: colorNumber(preset.headerTextColor), visible: Boolean(activePresetKey) && key === activePresetKey });
-      values.push({ key: `group-${key}`, color: colorNumber(preset.headerFrameColor), visible: Boolean(activePresetKey) && key === activePresetKey });
+      values.push({ key: `header-${key}`, text: displayTextFor5x7(matrixHeader), color: colorNumber(preset.headerTextColor), visible: Boolean(activePresetKey) && key === matrixPresetKey });
+      values.push({ key: `group-${key}`, color: colorNumber(preset.headerFrameColor), visible: Boolean(activePresetKey) && key === matrixPresetKey });
     }
     const pilots = scene.race?.pilots || [];
     for (let index = 0; index < 8; index += 1) {
@@ -272,26 +289,28 @@ export class DisplayScene {
     context.save();
     context.scale(zoom, zoom);
     context.textBaseline = "top";
-    const previewHeaderSize = scene.preset.font === "3x5" ? 5 : 7;
+    const matrixPreset = scene.matrixPreset || scene.preset;
+    const matrixHeader = scene.matrixHeader ?? scene.header;
+    const previewHeaderSize = matrixPreset.font === "3x5" ? 5 : 7;
     context.font = `bold ${previewHeaderSize}px "Courier New", monospace`;
-    context.fillStyle = scene.preset.headerTextColor;
+    context.fillStyle = matrixPreset.headerTextColor;
     context.textAlign = "center";
-    context.fillText(displayTextFor5x7(scene.header), width / 2, this.layout.headerY, width - 18);
-    context.strokeStyle = scene.preset.headerFrameColor;
-    context.fillStyle = scene.preset.headerFrameColor;
-    context.lineWidth = scene.preset.lineThickness;
+    context.fillText(displayTextFor5x7(matrixHeader), width / 2, this.layout.headerY, width - 18);
+    context.strokeStyle = matrixPreset.headerFrameColor;
+    context.fillStyle = matrixPreset.headerFrameColor;
+    context.lineWidth = matrixPreset.lineThickness;
     const top = Math.max(0, this.layout.headerY - 2);
     const bottom = this.layout.headerY + previewHeaderSize;
-    if (["overline", "over-under", "double"].includes(scene.preset.headerStyle)) { context.beginPath(); context.moveTo(11, top); context.lineTo(width - 11, top); context.stroke(); }
-    if (["underline", "over-under", "double"].includes(scene.preset.headerStyle)) { context.beginPath(); context.moveTo(11, bottom); context.lineTo(width - 11, bottom); context.stroke(); }
-    if (scene.preset.headerStyle === "double") {
+    if (["overline", "over-under", "double"].includes(matrixPreset.headerStyle)) { context.beginPath(); context.moveTo(11, top); context.lineTo(width - 11, top); context.stroke(); }
+    if (["underline", "over-under", "double"].includes(matrixPreset.headerStyle)) { context.beginPath(); context.moveTo(11, bottom); context.lineTo(width - 11, bottom); context.stroke(); }
+    if (matrixPreset.headerStyle === "double") {
       context.beginPath(); context.moveTo(11, Math.max(0, top - 2)); context.lineTo(width - 11, Math.max(0, top - 2)); context.moveTo(11, bottom + 2); context.lineTo(width - 11, bottom + 2); context.stroke();
     }
-    const arrow = scene.preset.headerFrame === "upward" ? "↑" : scene.preset.headerFrame === "right-double" ? ">>" : scene.preset.headerFrame === "right-single" ? ">" : scene.preset.headerFrame === "inward" ? ">" : "";
+    const arrow = matrixPreset.headerFrame === "upward" ? "↑" : matrixPreset.headerFrame === "right-double" ? ">>" : matrixPreset.headerFrame === "right-single" ? ">" : matrixPreset.headerFrame === "inward" ? ">" : "";
     if (arrow) {
       context.font = "bold 7px monospace";
       context.textAlign = "left"; context.fillText(arrow, 1, this.layout.headerY);
-      context.textAlign = "right"; context.fillText(scene.preset.headerFrame === "inward" ? "<" : arrow, width - 1, this.layout.headerY);
+      context.textAlign = "right"; context.fillText(matrixPreset.headerFrame === "inward" ? "<" : arrow, width - 1, this.layout.headerY);
     }
     context.font = `bold ${7 * this.profile.display.bodyScale}px "Courier New", monospace`;
     context.textAlign = "left";

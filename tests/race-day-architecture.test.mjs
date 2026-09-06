@@ -55,6 +55,28 @@ test("all three preset geometries fit the device limits", () => {
   }
 });
 
+test("canonical matrix arrow groups stay within the WLED schema and state limits", () => {
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  const schema = display.getSchema();
+  const expectedMotion = {
+    current: ["right", "left"],
+    staging: ["up", "up"],
+    next: ["right", "right"]
+  };
+
+  for (const [group, motions] of Object.entries(expectedMotion)) {
+    const arrows = schema.nodes.filter(node => node.bind === `group-${group}` && node.type === "polyline");
+    assert.deepEqual(arrows.map(node => node.motion), motions);
+    assert.ok(arrows.every(node => node.points.every(([x, y]) => x >= 0 && x < 80 && y >= 0 && y < 80)));
+  }
+
+  const state = display.getState(display.project(snapshot, "current"));
+  assert.ok(schema.nodes.length <= 40);
+  assert.ok(state.length <= 24);
+  assert.ok(state.every(value => !value.text || (value.text.length <= 40 && /^[ -~]*$/.test(value.text))));
+});
+
 test("the queue projection keeps current, next and after-next pilots with channels", () => {
   const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
   const schedule = projectRaceSchedule(snapshot, profile, { limit: 3 });

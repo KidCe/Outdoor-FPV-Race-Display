@@ -34,18 +34,27 @@ test("canonical status transitions drive current, queue, preview, and physical s
   const snapshot = await fixture("snapshot-fresh.json");
   const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
   const display = new DisplayScene(profile);
-  const expected = [["staging", "STAGING"], ["running", "RUNNING"], ["complete", "COMPLETE"]];
+  const expected = [
+    ["staging", "STAGING", "staging"],
+    ["running", "RUNNING", "current"],
+    ["complete", "COMPLETE", "next"]
+  ];
 
-  for (const [raw, label] of expected) {
+  for (const [raw, label, matrixPresetKey] of expected) {
     const candidate = structuredClone(snapshot);
     candidate.races[0].status = raw;
     const scene = display.project(candidate, "current");
     assert.equal(scene.race.status, raw);
     assert.equal(scene.race.statusLabel, label);
     assert.match(scene.header, new RegExp(`^${label}\\b`));
-    const currentHeader = display.getState(scene).find(value => value.key === "header-current");
-    assert.equal(currentHeader.text, scene.header);
-    assert.match(currentHeader.text, new RegExp(`^${label}\\b`));
+    assert.equal(scene.matrixHeader, "H18/24");
+    assert.equal(scene.matrixPresetKey, matrixPresetKey);
+    const values = display.getState(scene);
+    const visibleHeader = values.find(value => value.key === `header-${matrixPresetKey}`);
+    assert.equal(visibleHeader.visible, true);
+    assert.equal(visibleHeader.text, "H18/24");
+    assert.doesNotMatch(visibleHeader.text, new RegExp(label));
+    assert.equal(values.filter(value => value.key.startsWith("header-") && value.visible).length, 1);
   }
 
   const legacy = structuredClone(snapshot);
@@ -58,6 +67,28 @@ test("canonical status transitions drive current, queue, preview, and physical s
   const schema = display.getSchema();
   assert.ok(schema.nodes.length <= 40);
   assert.ok(new Set(schema.nodes.filter(node => node.bind).map(node => node.bind)).size <= 24);
+});
+
+test("next-up projection keeps the right-arrow group and compact ASCII header", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const afterNext = structuredClone(snapshot.races[1]);
+  afterNext.id = "heat-20";
+  afterNext.heat = { number: 20, count: 24 };
+  snapshot.schedule.afterNextRaceIds = [afterNext.id];
+  snapshot.races.push(afterNext);
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  const scene = display.project(snapshot, "next");
+  const values = display.getState(scene);
+
+  assert.equal(scene.race.id, "heat-20");
+  assert.equal(scene.race.status, RACE_STATUS.STAGING);
+  assert.equal(scene.matrixPresetKey, "next");
+  assert.equal(scene.matrixHeader, "H20/24");
+  assert.equal(values.find(value => value.key === "header-next").visible, true);
+  assert.equal(values.find(value => value.key === "header-next").text, "H20/24");
+  assert.match(scene.matrixHeader, /^[ -~]+$/);
+  assert.ok(scene.matrixHeader.length <= 40);
 });
 
 test("Hub connection quality changes do not replace the last trusted race status", async () => {
