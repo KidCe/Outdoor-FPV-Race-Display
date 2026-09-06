@@ -1,7 +1,7 @@
 # Work Report — Orchestrated Outdoor FPV Race Display Session
 
-**Session:** Night of 2026-09-05/06, Europe/Berlin  
-**Project:** Outdoor FPV Race Display / Race Data Hub  
+**Session:** Night of 2026-09-05/06, Europe/Berlin
+**Project:** Outdoor FPV Race Display / Race Data Hub
 **Purpose:** Record what the parallel agents, the integration coordinator, and the final Sol-High architecture/test reviewer achieved.
 
 ## Executive summary
