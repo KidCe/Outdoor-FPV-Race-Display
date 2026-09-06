@@ -1,7 +1,7 @@
 # Race Data Hub Architecture Review
 
-Status: architecture review  
-Review date: 2026-09-06  
+Status: architecture review
+Review date: 2026-09-06
 Reviewed document: [`RACE-DATA-HUB-ARCHITECTURE-WORK-INSTRUCTIONS.md`](./RACE-DATA-HUB-ARCHITECTURE-WORK-INSTRUCTIONS.md)
 
 ## Executive assessment
