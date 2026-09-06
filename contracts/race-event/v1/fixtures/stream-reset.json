@@ -1,0 +1,8 @@
+{
+  "type": "reset",
+  "hubEpoch": "hub-2026-09-06-02",
+  "eventSessionId": "forest-finale-session-1",
+  "streamSequence": 1,
+  "deliveredAt": "2026-09-06T14:00:00.050Z",
+  "data": { "reason": "epoch_changed" }
+}

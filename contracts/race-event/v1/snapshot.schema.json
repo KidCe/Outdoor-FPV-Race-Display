@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fpv.example.invalid/contracts/race-event/v1/snapshot.schema.json",
+  "title": "org.fpv.race-event.snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "snapshotId",
+    "eventSessionId",
+    "capturedAt",
+    "event",
+    "sources",
+    "schedule",
+    "races",
+    "quality",
+    "activeAnnouncements"
+  ],
+  "properties": {
+    "format": {
+      "const": "org.fpv.race-event.snapshot"
+    },
+    "version": {
+      "const": 1
+    },
+    "snapshotId": {
+      "$ref": "#/$defs/id"
+    },
+    "eventSessionId": {
+      "$ref": "#/$defs/id"
+    },
+    "capturedAt": {
+      "$ref": "#/$defs/dateTime"
+    },
+    "event": {
+      "$ref": "#/$defs/event"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "schedule": {
+      "$ref": "#/$defs/schedule"
+    },
+    "races": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/race"
+      }
+    },
+    "quality": {
+      "$ref": "#/$defs/quality"
+    },
+    "activeAnnouncements": {
+      "type": "array",
+      "items": {
+        "$ref": "announcement.schema.json"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "dateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "organizer": { "type": "string", "maxLength": 160 },
+        "sourceUrl": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "startsAt": { "anyOf": [{ "$ref": "#/$defs/dateTime" }, { "type": "null" }] },
+        "endsAt": { "anyOf": [{ "$ref": "#/$defs/dateTime" }, { "type": "null" }] }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "provider", "kind", "revision", "capturedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "provider": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "kind": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "revision": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "capturedAt": { "$ref": "#/$defs/dateTime" },
+        "confidence": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentRaceId", "currentIndex", "nextRaceIds"],
+      "properties": {
+        "currentRaceId": {
+          "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "currentIndex": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }]
+        },
+        "nextRaceIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "afterNextRaceIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "race": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "label", "status", "pilots"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "runId": {
+          "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "order": { "type": "integer", "minimum": 0 },
+        "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "phase": { "type": "string", "maxLength": 120 },
+        "round": { "type": "string", "maxLength": 120 },
+        "heat": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["number", "count"],
+              "properties": {
+                "number": { "type": "integer", "minimum": 1 },
+                "count": { "type": "integer", "minimum": 1 }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "status": {
+          "enum": ["scheduled", "staging", "running", "complete", "cancelled", "not_run", "unknown"]
+        },
+        "timing": {
+          "anyOf": [
+            { "$ref": "#/$defs/timing" },
+            { "type": "null" }
+          ]
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "format": "uri" }
+        },
+        "pilots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pilot" }
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["unknown", "staging", "running", "complete", "degraded", "stale"] },
+        "elapsedMs": {
+          "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }]
+        },
+        "startedAt": { "anyOf": [{ "$ref": "#/$defs/dateTime" }, { "type": "null" }] },
+        "stoppedAt": { "anyOf": [{ "$ref": "#/$defs/dateTime" }, { "type": "null" }] },
+        "capturedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "pilot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "callsign"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "sourceId": { "$ref": "#/$defs/id" },
+        "callsign": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "slot": { "type": "integer", "minimum": 1 },
+        "open": { "type": "boolean" },
+        "bumpUp": { "type": "boolean" },
+        "match": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "confidence"],
+          "properties": {
+            "method": { "enum": ["source_id", "callsign", "alias", "manual", "unmatched"] },
+            "confidence": { "$ref": "#/$defs/confidence" }
+          }
+        },
+        "video": {
+          "anyOf": [{ "$ref": "#/$defs/video" }, { "type": "null" }]
+        }
+      }
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel"],
+      "properties": {
+        "channel": { "type": "string", "minLength": 1, "maxLength": 16 },
+        "band": { "type": "string", "maxLength": 16 },
+        "number": { "type": "integer", "minimum": 1 },
+        "frequencyMHz": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "warnings", "domains"],
+      "properties": {
+        "state": { "enum": ["fresh", "degraded", "stale", "unknown"] },
+        "completeRaceCount": { "type": "integer", "minimum": 0 },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/warning" }
+        },
+        "domains": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/domainQuality"
+          }
+        }
+      }
+    },
+    "domainQuality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["fresh", "degraded", "stale", "unknown"] },
+        "capturedAt": {
+          "anyOf": [{ "$ref": "#/$defs/dateTime" }, { "type": "null" }]
+        },
+        "sourceIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "reason": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "severity"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9_.-]+$", "maxLength": 80 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "severity": { "enum": ["info", "warning", "error"] }
+      }
+    },
+    "confidence": {
+      "enum": ["high", "medium", "low", "unknown"]
+    }
+  }
+}

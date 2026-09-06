@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fpv.example.invalid/contracts/race-event/v1/announcement.schema.json",
+  "title": "Race Event Announcement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "announcementId",
+    "eventSessionId",
+    "title",
+    "body",
+    "importance",
+    "createdAt",
+    "createdByDeviceId",
+    "expiresAt",
+    "status"
+  ],
+  "properties": {
+    "announcementId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "eventSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "importance": {
+      "type": "integer",
+      "enum": [1, 2, 3]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "createdByDeviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "expiresAt": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "status": {
+      "enum": ["active", "cleared", "expired"]
+    },
+    "clearedAt": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "expiredAt": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

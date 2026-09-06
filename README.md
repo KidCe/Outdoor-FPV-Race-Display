@@ -58,6 +58,8 @@ Protocol details are in [docs/protocol-v1.md](docs/protocol-v1.md). The canonica
 
 LiveTime/LiveFPV connector setup is documented in [docs/race-event-connector.md](docs/race-event-connector.md).
 
+Direct LiveTime packet discovery through the separately cloned RaceVision.Utility is documented in [docs/racevision-capture.md](docs/racevision-capture.md). The launcher asks only for the local LiveTime key, keeps it out of captures and Git, and records complete JSON payloads for connector mapping.
+
 The deep-module layout and stable-schema invariant are documented in [docs/architecture.md](docs/architecture.md).
 
 ## Upstream and license

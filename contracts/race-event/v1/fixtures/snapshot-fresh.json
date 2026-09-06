@@ -1,0 +1,96 @@
+{
+  "format": "org.fpv.race-event.snapshot",
+  "version": 1,
+  "snapshotId": "forest-finale-session-1:42",
+  "eventSessionId": "forest-finale-session-1",
+  "capturedAt": "2026-09-06T10:00:00.000Z",
+  "event": {
+    "id": "forest-finale",
+    "name": "Forest Race Finale",
+    "organizer": "Rotormaniacs",
+    "sourceUrl": "https://rotormaniacs.livefpv.com/live/scoring/"
+  },
+  "sources": [
+    {
+      "id": "livefpv-scoring",
+      "provider": "LiveFPV",
+      "kind": "livefpv-scoring",
+      "revision": "livefpv-rev-184",
+      "capturedAt": "2026-09-06T10:00:00.000Z",
+      "confidence": "high"
+    }
+  ],
+  "schedule": {
+    "currentRaceId": "heat-18",
+    "currentIndex": 0,
+    "nextRaceIds": ["heat-19", "heat-20"],
+    "afterNextRaceIds": ["heat-21"]
+  },
+  "races": [
+    {
+      "id": "heat-18",
+      "runId": "heat-18-run-1",
+      "attempt": 1,
+      "order": 17,
+      "label": "Qualifier (Heat 18/24)",
+      "phase": "Qualifier",
+      "round": "Qualifier Round 3",
+      "heat": { "number": 18, "count": 24 },
+      "status": "running",
+      "timing": {
+        "state": "running",
+        "elapsedMs": 21400,
+        "startedAt": "2026-09-06T09:59:38.600Z",
+        "stoppedAt": null,
+        "capturedAt": "2026-09-06T10:00:00.000Z"
+      },
+      "links": {},
+      "pilots": [
+        {
+          "id": "pilot-one",
+          "sourceId": "lfp-101",
+          "callsign": "PilotOne",
+          "slot": 1,
+          "open": false,
+          "bumpUp": false,
+          "match": { "method": "source_id", "confidence": "high" },
+          "video": { "channel": "R1", "band": "R", "number": 1, "frequencyMHz": 5658 }
+        },
+        {
+          "id": "pilot-two",
+          "sourceId": "lfp-102",
+          "callsign": "PilotTwo",
+          "slot": 2,
+          "open": false,
+          "bumpUp": false,
+          "match": { "method": "source_id", "confidence": "high" },
+          "video": { "channel": "R8", "band": "R", "number": 8, "frequencyMHz": 5917 }
+        }
+      ]
+    },
+    {
+      "id": "heat-19",
+      "runId": null,
+      "order": 18,
+      "label": "Qualifier (Heat 19/24)",
+      "phase": "Qualifier",
+      "round": "Qualifier Round 3",
+      "heat": { "number": 19, "count": 24 },
+      "status": "staging",
+      "links": {},
+      "pilots": []
+    }
+  ],
+  "quality": {
+    "state": "fresh",
+    "completeRaceCount": 17,
+    "warnings": [],
+    "domains": {
+      "schedule": { "state": "fresh", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"] },
+      "lineup": { "state": "fresh", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"] },
+      "timing": { "state": "fresh", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"] },
+      "channels": { "state": "fresh", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"] }
+    }
+  },
+  "activeAnnouncements": []
+}

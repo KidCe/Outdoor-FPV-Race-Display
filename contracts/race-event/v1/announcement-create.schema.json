@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fpv.example.invalid/contracts/race-event/v1/announcement-create.schema.json",
+  "title": "Create Race Event Announcement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "body", "importance", "createdByDeviceId"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "body": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "importance": { "type": "integer", "enum": [1, 2, 3] },
+    "createdByDeviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "expiresAt": {
+      "anyOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

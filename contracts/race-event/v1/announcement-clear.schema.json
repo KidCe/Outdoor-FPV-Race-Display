@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fpv.example.invalid/contracts/race-event/v1/announcement-clear.schema.json",
+  "title": "Clear Race Event Announcement v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["announcementId", "clearedAt"],
+  "properties": {
+    "announcementId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "clearedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

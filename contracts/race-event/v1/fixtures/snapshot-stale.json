@@ -1,0 +1,56 @@
+{
+  "format": "org.fpv.race-event.snapshot",
+  "version": 1,
+  "snapshotId": "forest-finale-session-1:43",
+  "eventSessionId": "forest-finale-session-1",
+  "capturedAt": "2026-09-06T10:00:00.000Z",
+  "event": {
+    "id": "forest-finale",
+    "name": "Forest Race Finale",
+    "organizer": "Rotormaniacs",
+    "sourceUrl": "https://rotormaniacs.livefpv.com/live/scoring/"
+  },
+  "sources": [
+    {
+      "id": "livefpv-scoring",
+      "provider": "LiveFPV",
+      "kind": "livefpv-scoring",
+      "revision": "livefpv-rev-184",
+      "capturedAt": "2026-09-06T10:00:00.000Z",
+      "confidence": "high"
+    }
+  ],
+  "schedule": { "currentRaceId": "heat-18", "currentIndex": 0, "nextRaceIds": ["heat-19"], "afterNextRaceIds": [] },
+  "races": [
+    {
+      "id": "heat-18",
+      "runId": "heat-18-run-1",
+      "attempt": 1,
+      "order": 17,
+      "label": "Qualifier (Heat 18/24)",
+      "phase": "Qualifier",
+      "round": "Qualifier Round 3",
+      "heat": { "number": 18, "count": 24 },
+      "status": "running",
+      "timing": { "state": "stale", "elapsedMs": 21400, "startedAt": "2026-09-06T09:59:38.600Z", "stoppedAt": null, "capturedAt": "2026-09-06T10:00:00.000Z" },
+      "links": {},
+      "pilots": [
+        { "id": "pilot-one", "callsign": "PilotOne", "slot": 1, "video": { "channel": "R1", "frequencyMHz": 5658 } },
+        { "id": "pilot-two", "callsign": "PilotTwo", "slot": 2, "video": { "channel": "R8", "frequencyMHz": 5917 } }
+      ]
+    }
+  ],
+  "quality": {
+    "state": "stale",
+    "warnings": [
+      { "code": "source.reconnecting", "message": "LiveFPV has not provided a newer trusted observation.", "severity": "warning" }
+    ],
+    "domains": {
+      "schedule": { "state": "stale", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"], "reason": "source_reconnecting" },
+      "lineup": { "state": "stale", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"], "reason": "source_reconnecting" },
+      "timing": { "state": "stale", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"], "reason": "source_reconnecting" },
+      "channels": { "state": "stale", "capturedAt": "2026-09-06T10:00:00.000Z", "sourceIds": ["livefpv-scoring"], "reason": "source_reconnecting" }
+    }
+  },
+  "activeAnnouncements": []
+}

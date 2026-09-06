@@ -1,0 +1,20 @@
+{
+  "type": "announcement",
+  "hubEpoch": "hub-2026-09-06-01",
+  "eventSessionId": "forest-finale-session-1",
+  "streamSequence": 211,
+  "deliveredAt": "2026-09-06T13:20:00.050Z",
+  "data": {
+    "announcementId": "ann-h18-channels-1",
+    "eventSessionId": "forest-finale-session-1",
+    "title": "H18 Channels Changed",
+    "body": "PilotOne R1 -> R8, PilotTwo R8 -> R1",
+    "importance": 3,
+    "createdAt": "2026-09-06T13:20:00.000Z",
+    "createdByDeviceId": "race-manager-tablet",
+    "expiresAt": null,
+    "status": "active",
+    "clearedAt": null,
+    "expiredAt": null
+  }
+}
