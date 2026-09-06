@@ -166,6 +166,10 @@ function staleSnapshot(snapshot) {
   const recovered = structuredClone(snapshot); recovered.quality = { ...recovered.quality, state: "stale", warnings: [...recovered.quality.warnings, { code: "consumer.recovered", message: "The last trusted Hub snapshot was recovered from local storage.", severity: "warning" }], domains: Object.fromEntries(Object.entries(recovered.quality.domains).map(([key, value]) => [key, { ...value, state: "stale", reason: value.reason || "consumer_recovered" }])) }; return recovered;
 }
 
+function connectionForQuality(quality) {
+  return quality === "stale" ? "reconnecting" : quality === "degraded" ? "degraded" : quality === "unknown" ? "reconciling" : "live";
+}
+
 export function projectHubSnapshot(snapshot) {
   validateHubSnapshot(snapshot);
   const currentId = snapshot.schedule.currentRaceId;
@@ -199,7 +203,7 @@ export class RaceDataHubClient {
     const response = await this.fetchImpl(new URL("/api/v1/snapshot", this.base), { headers: { accept: "application/json" }, cache: "no-store" }); if (!response.ok) throw new Error(`Hub snapshot request failed (HTTP ${response.status}).`); let payload; try { payload = await response.json(); } catch { throw new Error("Hub snapshot response is not valid JSON."); } const snapshot = validateHubSnapshot(payload); const eventChanged = this.state.eventSessionId && this.state.eventSessionId !== snapshot.eventSessionId; if (this.state.needsReset || eventChanged) this.setState({ streamSequence: 0, snapshotSequence: 0, hubEpoch: eventChanged ? null : this.state.hubEpoch }); this.acceptSnapshot(snapshot, { allowEventChange: true }); return snapshot;
   }
   acceptSnapshot(snapshot, { sequence = 0, snapshotSequence = sequence, allowEventChange = false } = {}) {
-    validateHubSnapshot(snapshot); if (!allowEventChange && this.state.eventSessionId && snapshot.eventSessionId !== this.state.eventSessionId) throw new Error("Hub event session changed; awaiting reset."); const arrival = this.now(); const announcements = sortAnnouncements(snapshot.activeAnnouncements.filter(item => item.status === "active")); this.persist(snapshot); this.setState({ snapshot, quality: snapshot.quality.state, lastDataAt: arrival, sourceCapturedAt: snapshot.capturedAt, eventSessionId: snapshot.eventSessionId, streamSequence: Math.max(this.state.streamSequence, sequence), snapshotSequence: Math.max(this.state.snapshotSequence, snapshotSequence), announcements, connection: "live", error: "", needsReset: false });
+    validateHubSnapshot(snapshot); if (!allowEventChange && this.state.eventSessionId && snapshot.eventSessionId !== this.state.eventSessionId) throw new Error("Hub event session changed; awaiting reset."); const arrival = this.now(); const announcements = sortAnnouncements(snapshot.activeAnnouncements.filter(item => item.status === "active")); this.persist(snapshot); this.setState({ snapshot, quality: snapshot.quality.state, lastDataAt: arrival, sourceCapturedAt: snapshot.capturedAt, eventSessionId: snapshot.eventSessionId, streamSequence: Math.max(this.state.streamSequence, sequence), snapshotSequence: Math.max(this.state.snapshotSequence, snapshotSequence), announcements, connection: connectionForQuality(snapshot.quality.state), error: "", needsReset: false });
   }
   clearTrustedSnapshot() { try { this.storage?.removeItem(this.storageKey); } catch {} this.setState({ snapshot: null, lastDataAt: null, sourceCapturedAt: null, announcements: [], quality: "unknown", error: "" }); }
   requireReset(message) { this.setState({ connection: "reconnecting", needsReset: true, error: message }); if (this.stream) this.scheduleReconnect(this.generation); return false; }

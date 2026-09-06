@@ -370,6 +370,7 @@ test("LiveFPV and LiveTime replay flows through Hub, local and remote consumers,
 
     await assert.rejects(() => hub.refresh(), /LiveFPV disconnected/);
     await waitFor(() => displayClient.getState().quality === "stale", "stale Hub snapshot");
+    assert.equal(displayClient.getState().connection, "reconnecting");
     assert.equal(displayClient.getState().snapshot.snapshotId, rerun.snapshotId);
     assert.equal(displayClient.getState().snapshot.capturedAt, rerun.capturedAt);
     assert.equal(queueClient.getState().snapshot.snapshotId, rerun.snapshotId);

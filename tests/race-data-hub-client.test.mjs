@@ -89,6 +89,7 @@ test("Hub client keeps stale snapshots, rejects gaps, and orders announcements",
   const client = new RaceDataHubClient({ hubUrl: "http://hub.test" });
   client.acceptSnapshot(snapshot);
   assert.equal(client.getState().quality, "stale");
+  assert.equal(client.getState().connection, "reconnecting");
   client.apply({ ...announcement, streamSequence: 1 });
   assert.equal(client.getState().announcements[0].importance, 3);
   assert.equal(client.apply({ ...announcement, streamSequence: 3 }), false);
