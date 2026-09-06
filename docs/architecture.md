@@ -20,7 +20,7 @@ The schema contains the geometry for Current Heat, Staging Heat, and Next Up at 
 - no more than 24 bound values;
 - no race text, callsign, channel, status, or schedule position in the schema hash.
 
-The active race status is carried in the existing header value (`STAGING`, `RUNNING`, `COMPLETE`, or `UNKNOWN`) so the physical 80×80 output gains status visibility without adding a node or exceeding the bound-value limit.
+The active race status is carried in the existing header value (`STAGING`, `RUNNING`, `COMPLETE`, or `UNKNOWN`) and the completed-current projection uses a compact `DONE Hx/y` header with an optional completion bracket marker. The marker is a pair of bound polyline nodes, so the physical 80×80 output gains terminal-state visibility without adding a second status text row or exceeding the device limits.
 
 Changing a structural preset option creates a new schema hash. `OutputSession` first tries the installed schema and automatically installs the current schema when it is missing or changed, then resumes the pending live state.
 

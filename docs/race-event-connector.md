@@ -4,7 +4,7 @@ The browser display consumes `org.fpv.race-event.snapshot` version 1 from LiveTi
 
 Channel colors now belong to the versioned race-day profile and are applied to every projected heat. Partial live packets may omit video metadata; `DisplayScene` resolves a missing assignment from the same pilot elsewhere in the event snapshot instead of clearing a previously known channel.
 
-`web/race-status.js` is the shared consumer seam for race lifecycle presentation. It maps canonical Hub values and legacy LiveTime values such as `ready`, `racing`, and `completed` to the exact display labels `STAGING`, `RUNNING`, and `COMPLETE`; unsupported or missing values render as `UNKNOWN`. Connection state, source quality, and errors remain separate from the race status.
+`web/race-status.js` is the shared consumer seam for race lifecycle presentation. It maps canonical Hub values and legacy LiveTime values such as `ready`, `racing`, and `completed` to the exact display labels `STAGING`, `RUNNING`, and `COMPLETE`; unsupported or missing values render as `UNKNOWN`. Connection state, source quality, and errors remain separate from the race status. A completed current heat uses the compact 5×7 `DONE Hx/y` header plus the optional completion bracket marker.
 
 ## Local use
 
@@ -20,8 +20,12 @@ Legacy HTTP reconciliation is lower priority than a newer trusted live observati
 
 The connector endpoint and standard are documented in LiveTimeQue under `docs/FPV-RACE-EVENT-DATA-V1.md`. Recorded fixtures remain a code-level adapter for repeatable tests and are intentionally absent from the production race-day UI.
 
+## Completed-heat frontier protection
+
+LiveTime can briefly report an older heat after the race manager navigates back in the local race view. If that packet is not an explicit `staging` or `running` transition, the central Hub selects the latest completed frontier instead of treating an unstarted source pointer as current. This prevents a stale `complete` packet for (for example) H9 from replacing a completed H12 on either consumer, while known later-round races such as Q10 H1 and H2 remain available as Next Up. An explicit active status remains the signal for a deliberate rerun.
+
 ## Hub runtime boundary
 
-The display can consume a central Hub through its optional **Race Data Hub URL** field, and the Hub server/admin/status/announcement paths are covered by deterministic tests. The repository does not yet provide a production Hub launcher or lifecycle script, however. Until a Hub process is explicitly started and the display is pointed at it (normally `http://localhost:4175`), the Hub Admin and central announcements are code-complete integration seams rather than an active race-day service. Direct LiveTimeQue mode on port `4174` does not provide central announcements.
+The display and LiveTimeQue can consume the same central Hub through `http://127.0.0.1:4175`. The [Start Race Day.cmd](../Start%20Race%20Day.cmd) launcher starts the Hub, the display server, and the neighboring LiveTimeQue connector, then opens both consumers in Hub mode. The Hub polls the connector for schedule data, consumes its LiveTime status stream, persists the last trusted snapshot under `data/race-data-hub.json`, and exposes the password-protected announcement admin at `/admin`. Direct LiveTimeQue mode on port `4174` remains available for migration and diagnostics, but it is not the central announcement path.
 
 The GitHub Pages copy of the display is HTTPS. Browsers can block requests from it to a plain HTTP connector on the local PC, so local HTTP is the reliable race-day setup until the collector is hosted behind HTTPS.

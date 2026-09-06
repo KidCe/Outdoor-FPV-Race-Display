@@ -6,8 +6,7 @@ const MAX_5X7_TEXT_CHARACTERS = 40;
 const MATRIX_PRESET_BY_STATUS = Object.freeze({
   [RACE_STATUS.STAGING]: "staging",
   [RACE_STATUS.RUNNING]: "current",
-  // A completed current heat points toward the next heat.
-  [RACE_STATUS.COMPLETE]: "next"
+  [RACE_STATUS.COMPLETE]: "current"
 });
 
 const FIVE_BY_SEVEN_GLYPHS = new Set(" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-:.|_+=><!?");
@@ -17,6 +16,10 @@ const FIVE_BY_SEVEN_FALLBACKS = Object.freeze({
   "ð": "d", "Ð": "D", "þ": "th", "Þ": "TH", "ł": "l", "Ł": "L", "đ": "d", "Đ": "D",
   "ħ": "h", "Ħ": "H", "ŧ": "t", "Ŧ": "T", "ŋ": "n", "Ŋ": "N", "ĸ": "k"
 });
+
+function fontMetrics(preset) {
+  return preset.font === "3x5" ? { width: 3, height: 5 } : { width: 5, height: 7 };
+}
 
 function canRender5x7Glyph(character) {
   return FIVE_BY_SEVEN_GLYPHS.has(character);
@@ -184,6 +187,27 @@ function addHeaderFrame(nodes, key, preset, width, headerY, headerHeight) {
   }
 }
 
+function completedBracketPoints(side, width, top, bottom) {
+  if (side === "left") return [[8, top], [4, top], [4, bottom], [8, bottom]];
+  return [[width - 9, top], [width - 5, top], [width - 5, bottom], [width - 9, bottom]];
+}
+
+function addCompletedMarker(nodes, width, headerY, headerHeight) {
+  const bind = "complete-marker";
+  const top = Math.max(0, headerY - 2);
+  const bottom = headerY + headerHeight + 2;
+  for (const side of ["left", "right"]) {
+    nodes.push({
+      id: `${bind}-${side}`,
+      type: "polyline",
+      bind,
+      points: completedBracketPoints(side, width, top, bottom),
+      color: 0xffffff,
+      thickness: 2
+    });
+  }
+}
+
 export class DisplayScene {
   constructor(profile) { this.setProfile(profile); }
 
@@ -209,7 +233,9 @@ export class DisplayScene {
       race: race ? { ...race, presetKey } : null,
       preset: this.profile.display.presets[presetKey],
       header: race ? `${race.statusLabel} ${race.heat}`.trim().toUpperCase() : "",
-      matrixHeader: race ? race.heat : "",
+      matrixHeader: race
+        ? race.status === RACE_STATUS.COMPLETE && this.profile.display.completedMarker !== "none" ? `DONE ${race.heat}` : race.heat
+        : "",
       matrixPresetKey,
       matrixPreset: this.profile.display.presets[matrixPresetKey]
     };
@@ -225,6 +251,11 @@ export class DisplayScene {
       values.push({ key: `header-${key}`, text: displayTextFor5x7(matrixHeader), color: colorNumber(preset.headerTextColor), visible: Boolean(activePresetKey) && key === matrixPresetKey });
       values.push({ key: `group-${key}`, color: colorNumber(preset.headerFrameColor), visible: Boolean(activePresetKey) && key === matrixPresetKey });
     }
+    values.push({
+      key: "complete-marker",
+      color: colorNumber(this.profile.display.presets.current.headerFrameColor),
+      visible: scene.race?.status === RACE_STATUS.COMPLETE && this.profile.display.completedMarker !== "none"
+    });
     const pilots = scene.race?.pilots || [];
     for (let index = 0; index < 8; index += 1) {
       const pilot = pilots[index];
@@ -239,7 +270,6 @@ export class DisplayScene {
     const width = display.width;
     const height = display.height;
     const presets = display.presets;
-    const fontMetrics = preset => preset.font === "3x5" ? { width: 3, height: 5 } : { width: 5, height: 7 };
     const maximumHeaderHeight = Math.max(...VIEW_ORDER.map(key => fontMetrics(presets[key]).height));
     const headerY = 4;
     const bottomExtra = VIEW_ORDER.some(key => presets[key].headerStyle === "double") ? 3 : VIEW_ORDER.some(key => ["underline", "over-under"].includes(presets[key].headerStyle)) ? 1 : 0;
@@ -257,6 +287,7 @@ export class DisplayScene {
       addHeaderLines(nodes, key, preset, width, headerY, metrics.height);
       addHeaderFrame(nodes, key, preset, width, headerY, metrics.height);
     }
+    addCompletedMarker(nodes, width, headerY, fontMetrics(presets.current).height);
     const advance = 6 * display.bodyScale;
     const rowHeight = 7 * display.bodyScale;
     for (let index = 0; index < 8; index += 1) {
@@ -305,6 +336,17 @@ export class DisplayScene {
     if (["underline", "over-under", "double"].includes(matrixPreset.headerStyle)) { context.beginPath(); context.moveTo(11, bottom); context.lineTo(width - 11, bottom); context.stroke(); }
     if (matrixPreset.headerStyle === "double") {
       context.beginPath(); context.moveTo(11, Math.max(0, top - 2)); context.lineTo(width - 11, Math.max(0, top - 2)); context.moveTo(11, bottom + 2); context.lineTo(width - 11, bottom + 2); context.stroke();
+    }
+    if (scene.race.status === RACE_STATUS.COMPLETE && this.profile.display.completedMarker !== "none") {
+      context.strokeStyle = this.profile.display.presets.current.headerFrameColor;
+      context.lineWidth = this.profile.display.presets.current.lineThickness;
+      for (const side of ["left", "right"]) {
+        const points = completedBracketPoints(side, width, Math.max(0, this.layout.headerY - 2), this.layout.headerY + fontMetrics(this.profile.display.presets.current).height + 2);
+        context.beginPath();
+        context.moveTo(points[0][0], points[0][1]);
+        for (const [x, y] of points.slice(1)) context.lineTo(x, y);
+        context.stroke();
+      }
     }
     const arrow = matrixPreset.headerFrame === "upward" ? "↑" : matrixPreset.headerFrame === "right-double" ? ">>" : matrixPreset.headerFrame === "right-single" ? ">" : matrixPreset.headerFrame === "inward" ? ">" : "";
     if (arrow) {

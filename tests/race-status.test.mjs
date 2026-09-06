@@ -47,13 +47,14 @@ test("canonical status transitions drive current, queue, preview, and physical s
     assert.equal(scene.race.status, raw);
     assert.equal(scene.race.statusLabel, label);
     assert.match(scene.header, new RegExp(`^${label}\\b`));
-    assert.equal(scene.matrixHeader, "H18/24");
-    assert.equal(scene.matrixPresetKey, matrixPresetKey);
+    assert.equal(scene.matrixHeader, label === "COMPLETE" ? "DONE H18/24" : "H18/24");
+    assert.equal(scene.matrixPresetKey, label === "COMPLETE" ? "current" : matrixPresetKey);
     const values = display.getState(scene);
-    const visibleHeader = values.find(value => value.key === `header-${matrixPresetKey}`);
+    const visiblePresetKey = label === "COMPLETE" ? "current" : matrixPresetKey;
+    const visibleHeader = values.find(value => value.key === `header-${visiblePresetKey}`);
     assert.equal(visibleHeader.visible, true);
-    assert.equal(visibleHeader.text, "H18/24");
-    assert.doesNotMatch(visibleHeader.text, new RegExp(label));
+    assert.equal(visibleHeader.text, label === "COMPLETE" ? "DONE H18/24" : "H18/24");
+    if (label !== "COMPLETE") assert.doesNotMatch(visibleHeader.text, new RegExp(label));
     assert.equal(values.filter(value => value.key.startsWith("header-") && value.visible).length, 1);
   }
 
@@ -67,6 +68,20 @@ test("canonical status transitions drive current, queue, preview, and physical s
   const schema = display.getSchema();
   assert.ok(schema.nodes.length <= 40);
   assert.ok(new Set(schema.nodes.filter(node => node.bind).map(node => node.bind)).size <= 24);
+});
+
+test("completed current heat uses a compact DONE header and completion marker", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  snapshot.races[0].status = "complete";
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  const scene = display.project(snapshot, "current");
+  const values = display.getState(scene);
+
+  assert.equal(scene.matrixPresetKey, "current");
+  assert.equal(scene.matrixHeader, "DONE H18/24");
+  assert.equal(values.find(value => value.key === "complete-marker").visible, true);
+  assert.equal(display.getSchema().nodes.filter(node => node.bind === "complete-marker").length, 2);
 });
 
 test("next-up projection keeps the right-arrow group and compact ASCII header", async () => {

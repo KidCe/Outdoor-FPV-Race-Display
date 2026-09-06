@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "web": "node scripts/local-web-server.mjs"
+    "web": "node scripts/local-web-server.mjs",
+    "hub": "node hub/local-server.mjs"
   }
 }

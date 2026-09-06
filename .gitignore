@@ -5,4 +5,5 @@ node_modules/
 build_output/
 .codex-remote-attachments/
 .DS_Store
+data/
 .vscode/.browse.c_cpp.db*

@@ -43,6 +43,13 @@ export class RaceDayAppHost {
     if (["http://localhost:4174", "http://127.0.0.1:4174"].includes(this.profile.source.connectorUrl.replace(/\/$/, ""))) {
       this.profile = this.profileStore.update({ source: { connectorUrl: "" } });
     }
+    const requestedHub = new URLSearchParams(globalThis.location?.search || "").get("hub");
+    if (requestedHub) {
+      try {
+        const hubUrl = new URL(requestedHub);
+        if (["http:", "https:"].includes(hubUrl.protocol)) this.profile = this.profileStore.update({ source: { hubUrl: hubUrl.href.replace(/\/$/, ""), enabled: true } });
+      } catch {}
+    }
     this.sceneModule = new DisplayScene(this.profile);
     this.sourceRuntime = new RaceSourceRuntime({ onState: state => this.onSourceState(state) });
     this.outputSession = new OutputSession({ onState: state => this.onOutputState(state) });
@@ -324,6 +331,7 @@ export class RaceDayAppHost {
     byId("headerGapValue").textContent = `${display.headerGap}px`;
     byId("rowGap").value = display.rowGap;
     byId("rowGapValue").textContent = `${display.rowGap}px`;
+    byId("completedMarker").value = display.completedMarker;
     this.fillPresetControls();
   }
 
@@ -362,6 +370,7 @@ export class RaceDayAppHost {
     byId("cycleSeconds").addEventListener("change", event => { this.updateProfile({ cycle: { seconds: Number(event.target.value) } }); this.configureCycle(); });
     for (const [id, key, number] of [["headerStyle", "headerStyle"], ["headerFrame", "headerFrame"], ["headerTextColor", "headerTextColor"], ["headerFrameColor", "headerFrameColor"], ["lineThickness", "lineThickness", true], ["headerFont", "font"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { presets: { [this.selectedPreset]: { [key]: number ? Number(event.target.value) : event.target.value } } } }));
     for (const [id, key] of [["headerGap", "headerGap"], ["rowGap", "rowGap"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { [key]: Number(event.target.value) } }));
+    byId("completedMarker").addEventListener("input", event => this.updateProfile({ display: { completedMarker: event.target.value } }));
     byId("channelColorMap").addEventListener("input", event => { const channel = event.target.dataset.channel; if (channel) this.updateProfile({ display: { channelColors: { [channel]: event.target.value } } }); });
     byId("installSchema").addEventListener("click", async () => { try { await this.outputSession.installSchema(this.sceneModule.getSchema()); } catch (error) { byId("sessionMessage").textContent = error.message; } });
     byId("exportSchema").addEventListener("click", () => { const schema = this.sceneModule.getSchema(); download(`${schema.schemaId}-${schema.schemaHash}.json`, "application/json", `${JSON.stringify(schema, null, 2)}\n`); });

@@ -55,6 +55,7 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
     channelWidth: 2,
     channelGap: 1,
     pilotWidth: 15,
+    completedMarker: "brackets",
     backgroundColor: "#000000",
     pilotTextColor: "#ffffff",
     presets: DEFAULT_PRESETS,
@@ -159,6 +160,7 @@ export function validateRaceDayProfile(candidate) {
   profile.display.channelWidth = boundedNumber(profile.display.channelWidth, 2, 1, 5);
   profile.display.channelGap = boundedNumber(profile.display.channelGap, 1, 0, 4);
   profile.display.pilotWidth = boundedNumber(profile.display.pilotWidth, 15, 4, 30);
+  profile.display.completedMarker = ["brackets", "none"].includes(profile.display.completedMarker) ? profile.display.completedMarker : "brackets";
   profile.display.backgroundColor = validColor(profile.display.backgroundColor, "#000000");
   profile.display.pilotTextColor = validColor(profile.display.pilotTextColor, "#ffffff");
   for (const key of ["current", "staging", "next"]) {
