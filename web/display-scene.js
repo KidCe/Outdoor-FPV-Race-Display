@@ -2,6 +2,39 @@ import { validateRaceEventSnapshot } from "./race-event-connector.js";
 import { mapRaceStatus, presentRaceStatus } from "./race-status.js";
 
 const VIEW_ORDER = ["current", "staging", "next"];
+const MAX_5X7_TEXT_CHARACTERS = 40;
+
+const FIVE_BY_SEVEN_GLYPHS = new Set(" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-:.|_+=><!?");
+const FIVE_BY_SEVEN_FALLBACKS = Object.freeze({
+  "ı": "i", "İ": "I", "ğ": "g", "Ğ": "G", "ş": "s", "Ş": "S", "ç": "c", "Ç": "C",
+  "ß": "ss", "ẞ": "SS", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE", "ø": "o", "Ø": "O",
+  "ð": "d", "Ð": "D", "þ": "th", "Þ": "TH", "ł": "l", "Ł": "L", "đ": "d", "Đ": "D",
+  "ħ": "h", "Ħ": "H", "ŧ": "t", "Ŧ": "T", "ŋ": "n", "Ŋ": "N", "ĸ": "k"
+});
+
+function canRender5x7Glyph(character) {
+  return FIVE_BY_SEVEN_GLYPHS.has(character);
+}
+
+export function normalize5x7Text(value, { maxCharacters = MAX_5X7_TEXT_CHARACTERS, supportsGlyph = canRender5x7Glyph } = {}) {
+  const source = String(value ?? "").normalize("NFC");
+  const output = [];
+  for (const character of source) {
+    const decomposed = character.normalize("NFD").replace(/\p{M}/gu, "");
+    const mapped = FIVE_BY_SEVEN_FALLBACKS[character] ?? decomposed;
+    const fallback = supportsGlyph(character)
+      ? character
+      : mapped || "?";
+    for (const replacement of fallback) output.push(supportsGlyph(replacement) ? replacement : "?");
+  }
+  const limit = Number(maxCharacters);
+  const characterLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : MAX_5X7_TEXT_CHARACTERS;
+  return output.slice(0, characterLimit).join("");
+}
+
+function displayTextFor5x7(value) {
+  return normalize5x7Text(String(value ?? "").toUpperCase());
+}
 
 function colorNumber(value) {
   return parseInt(String(value || "#ffffff").replace("#", ""), 16) & 0xffffff;
@@ -172,14 +205,14 @@ export class DisplayScene {
     const activePresetKey = scene.race?.presetKey || null;
     for (const key of VIEW_ORDER) {
       const preset = this.profile.display.presets[key];
-      values.push({ key: `header-${key}`, text: scene.header, color: colorNumber(preset.headerTextColor), visible: Boolean(activePresetKey) && key === activePresetKey });
+      values.push({ key: `header-${key}`, text: displayTextFor5x7(scene.header), color: colorNumber(preset.headerTextColor), visible: Boolean(activePresetKey) && key === activePresetKey });
       values.push({ key: `group-${key}`, color: colorNumber(preset.headerFrameColor), visible: Boolean(activePresetKey) && key === activePresetKey });
     }
     const pilots = scene.race?.pilots || [];
     for (let index = 0; index < 8; index += 1) {
       const pilot = pilots[index];
-      values.push({ key: `ch${index}`, text: pilot?.channel || "", color: colorNumber(pilot?.color || "#ffffff") });
-      values.push({ key: `pn${index}`, text: String(pilot?.callsign || "").toUpperCase(), color: colorNumber(this.profile.display.pilotTextColor) });
+      values.push({ key: `ch${index}`, text: displayTextFor5x7(pilot?.channel || ""), color: colorNumber(pilot?.color || "#ffffff") });
+      values.push({ key: `pn${index}`, text: displayTextFor5x7(pilot?.callsign || ""), color: colorNumber(this.profile.display.pilotTextColor) });
     }
     return values;
   }
@@ -243,7 +276,7 @@ export class DisplayScene {
     context.font = `bold ${previewHeaderSize}px "Courier New", monospace`;
     context.fillStyle = scene.preset.headerTextColor;
     context.textAlign = "center";
-    context.fillText(scene.header, width / 2, this.layout.headerY, width - 18);
+    context.fillText(displayTextFor5x7(scene.header), width / 2, this.layout.headerY, width - 18);
     context.strokeStyle = scene.preset.headerFrameColor;
     context.fillStyle = scene.preset.headerFrameColor;
     context.lineWidth = scene.preset.lineThickness;
@@ -265,9 +298,9 @@ export class DisplayScene {
     scene.race.pilots.forEach((pilot, index) => {
       const y = this.layout.bodyY + index * (7 + this.profile.display.rowGap);
       context.fillStyle = pilot.color;
-      context.fillText(pilot.channel, 1, y);
+      context.fillText(displayTextFor5x7(pilot.channel), 1, y);
       context.fillStyle = this.profile.display.pilotTextColor;
-      context.fillText(pilot.callsign.toUpperCase(), 19, y, width - 20);
+      context.fillText(displayTextFor5x7(pilot.callsign), 19, y, width - 20);
     });
     context.restore();
     return { width, height, schemaHash: this.schema.schemaHash, nodes: this.schema.nodes.length };
