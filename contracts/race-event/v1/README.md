@@ -34,6 +34,8 @@ Consumers must not depend on source-specific packet positions, HTML selectors, s
 8. A heartbeat does not represent a new snapshot.
 9. A rerun keeps `heat.id` and changes `runId` or `attempt`.
 10. A local read/unread or dismiss state is not part of the canonical announcement state.
+11. `race.status` is source-authoritative and uses the canonical values `staging`, `running`, and `complete` (plus the other values defined by the schema). A source adapter may explicitly map legacy labels at the Hub boundary, but it must not silently discard the status.
+12. The optional nullable `raceStatus` in a status stream envelope mirrors the status of `schedule.currentRaceId`. It is independent from connection and quality; stale or degraded recovery does not rewrite the trusted race status.
 
 ## Validation ownership
 

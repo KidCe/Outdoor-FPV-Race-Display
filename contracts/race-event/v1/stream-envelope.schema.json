@@ -52,6 +52,12 @@
             "source": { "type": "string", "maxLength": 120 },
             "event": { "type": "string", "maxLength": 200 },
             "quality": { "enum": ["fresh", "degraded", "stale", "unknown"] },
+            "raceStatus": {
+              "anyOf": [
+                { "enum": ["scheduled", "staging", "running", "complete", "cancelled", "not_run", "unknown"] },
+                { "type": "null" }
+              ]
+            },
             "message": { "type": "string", "maxLength": 500 }
           }
         },

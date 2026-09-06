@@ -1,5 +1,5 @@
 import { createRaceEventStreamUrl, fetchRaceEventSnapshot, validateRaceEventSnapshot } from "./race-event-connector.js";
-import { RaceDataHubClient } from "./race-data-hub-client.js";
+import { RaceDataHubClient, getActiveRaceStatus } from "./race-data-hub-client.js";
 import { RACE_STATUS, mapRaceStatus } from "./race-status.js";
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -76,12 +76,13 @@ export class RaceSourceRuntime {
     this.storage = storage;
     this.storageKey = storageKey;
     this.trustedStatuses = new Map();
-    this.state = { connection: "disabled", snapshot: null, lastDataAt: null, sourceCapturedAt: null, error: "", announcements: [], quality: "unknown" };
+    this.state = { connection: "disabled", snapshot: null, raceStatus: null, lastDataAt: null, sourceCapturedAt: null, error: "", announcements: [], quality: "unknown" };
     this.hubClient = null;
     try {
       const cached = JSON.parse(this.storage?.getItem(this.storageKey) || "null");
       if (cached?.snapshot) {
         this.state.snapshot = validateRaceEventSnapshot(cached.snapshot);
+        this.state.raceStatus = getActiveRaceStatus(this.state.snapshot);
         this.state.lastDataAt = Number(cached.lastDataAt) || null;
         this.state.sourceCapturedAt = this.state.snapshot.capturedAt || null;
         this.state.quality = "stale";
@@ -105,7 +106,7 @@ export class RaceSourceRuntime {
     try { this.storage?.removeItem("fpv-race-hub-trusted-v1"); } catch {}
     this.hubClient?.clearTrustedSnapshot?.();
     this.trustedStatuses.clear();
-    this.setState({ snapshot: null, lastDataAt: null, sourceCapturedAt: null, announcements: [], quality: "unknown", error: this.enabled ? this.state.error : "" });
+    this.setState({ snapshot: null, raceStatus: null, lastDataAt: null, sourceCapturedAt: null, announcements: [], quality: "unknown", error: this.enabled ? this.state.error : "" });
   }
 
   configure(config) {
@@ -134,10 +135,10 @@ export class RaceSourceRuntime {
     this.setState({ connection: "connecting", error: "" });
     if (this.config.hubUrl) {
       try {
-        const hub = this.hubClientFactory({ hubUrl: this.config.hubUrl, storage: this.storage, now: this.now, onState: state => { if (generation !== this.generation || !this.enabled) return; this.setState({ connection: state.connection === "live" ? "connected" : state.connection, snapshot: state.snapshot, lastDataAt: state.lastDataAt, sourceCapturedAt: state.sourceCapturedAt, error: state.error, announcements: state.announcements, quality: state.quality }); } });
+        const hub = this.hubClientFactory({ hubUrl: this.config.hubUrl, storage: this.storage, now: this.now, onState: state => { if (generation !== this.generation || !this.enabled) return; this.setState({ connection: state.connection === "live" ? "connected" : state.connection, snapshot: state.snapshot, raceStatus: state.raceStatus ?? getActiveRaceStatus(state.snapshot), lastDataAt: state.lastDataAt, sourceCapturedAt: state.sourceCapturedAt, error: state.error, announcements: state.announcements, quality: state.quality }); } });
         this.hubClient = hub;
         const hubState = hub.getState();
-        this.setState({ connection: hubState.connection === "live" ? "connected" : hubState.connection, snapshot: hubState.snapshot, lastDataAt: hubState.lastDataAt, sourceCapturedAt: hubState.sourceCapturedAt, error: hubState.error, announcements: hubState.announcements, quality: hubState.quality });
+        this.setState({ connection: hubState.connection === "live" ? "connected" : hubState.connection, snapshot: hubState.snapshot, raceStatus: hubState.raceStatus ?? getActiveRaceStatus(hubState.snapshot), lastDataAt: hubState.lastDataAt, sourceCapturedAt: hubState.sourceCapturedAt, error: hubState.error, announcements: hubState.announcements, quality: hubState.quality });
         this.unsubscribeStream = () => hub.close();
         await hub.connect();
       } catch (error) {
@@ -233,7 +234,7 @@ export class RaceSourceRuntime {
     if (origin !== "reconciliation" || trusted.quality?.state === "fresh") this.rememberStatuses(next, acceptedAt);
     this.retryAttempt = 0;
     try { this.storage?.setItem(this.storageKey, JSON.stringify({ snapshot: next, lastDataAt: acceptedAt })); } catch {}
-    this.setState({ connection: "connected", snapshot: next, lastDataAt: acceptedAt, sourceCapturedAt: next.capturedAt || null, quality: next.quality?.state || "unknown", error: "" });
+    this.setState({ connection: "connected", snapshot: next, raceStatus: getActiveRaceStatus(next), lastDataAt: acceptedAt, sourceCapturedAt: next.capturedAt || null, quality: next.quality?.state || "unknown", error: "" });
   }
 
   rememberStatuses(snapshot, acceptedAt) {
