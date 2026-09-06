@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Race Data Hub Admin</title>
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Race Data Hub</p>
+      <h1>Hub Admin</h1>
+      <p class="lede">Select the event served by this hub, inspect freshness, and manage shared event announcements.</p>
+    </header>
+
+    <section class="card" aria-labelledby="status-heading">
+      <div class="section-heading"><h2 id="status-heading">Status</h2><button id="refresh-status" class="secondary">Refresh</button></div>
+      <dl class="status-grid">
+        <div><dt>Connection</dt><dd id="status-connection">—</dd></div>
+        <div><dt>Quality</dt><dd id="status-quality">—</dd></div>
+        <div><dt>Source</dt><dd id="status-source">—</dd></div>
+        <div><dt>Event</dt><dd id="status-event">—</dd></div>
+        <div><dt>Hub epoch</dt><dd id="status-epoch">—</dd></div>
+        <div><dt>Snapshot</dt><dd id="status-snapshot">—</dd></div>
+      </dl>
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <section class="card" aria-labelledby="event-heading">
+      <h2 id="event-heading">Active event</h2>
+      <form id="event-form">
+        <label>Event session ID<input id="event-session-id" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:-]*"></label>
+        <label>Event name<input id="event-name" maxlength="200"></label>
+        <label>LiveFPV scoring URL<input id="event-source-url" type="url" placeholder="https://example.livefpv.com/live/scoring/"></label>
+        <div class="actions"><button type="submit">Select event</button><button type="button" id="deactivate" class="danger">Deactivate event</button></div>
+      </form>
+    </section>
+
+    <section class="card" aria-labelledby="announcement-heading">
+      <h2 id="announcement-heading">Announcements</h2>
+      <form id="announcement-form">
+        <label>Title<input id="announcement-title" required maxlength="80"></label>
+        <label>Body<textarea id="announcement-body" required maxlength="500" rows="3"></textarea></label>
+        <label>Importance<select id="announcement-importance"><option value="1">1 — transient</option><option value="2">2 — visible</option><option value="3" selected>3 — persistent</option></select></label>
+        <label>Device ID<input id="announcement-device" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:-]*" value="hub-admin"></label>
+        <div class="actions"><button type="submit">Create announcement</button><button type="button" id="clear-form" class="secondary">Clear form</button></div>
+      </form>
+      <div class="section-heading history-heading"><h3>History</h3><button id="refresh-history" class="secondary">Refresh</button></div>
+      <ul id="announcement-list" class="announcement-list"><li class="muted">No history loaded.</li></ul>
+    </section>
+
+    <section class="card" aria-labelledby="auth-heading">
+      <h2 id="auth-heading">Write access</h2>
+      <label>Shared event write password<input id="write-password" type="password" autocomplete="off"></label>
+      <p class="hint">The password is kept in memory for this page only.</p>
+    </section>
+  </main>
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>

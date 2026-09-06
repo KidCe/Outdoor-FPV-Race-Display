@@ -1,5 +1,9 @@
 # FPV Race WLED Display
 
+## AI assistance disclosure
+
+This project was created and maintained with substantial assistance from OpenAI Codex. The repository maintainer directed the work, made the project decisions, and is responsible for reviewing and using the result.
+
 An 80×80 FPV race status display for WLED HUB75 builds. The compact **Race Display Control Desk** keeps LiveTime, the matrix preview, upcoming heats, WLED output, and pixel readback in one race-day WebUI.
 
 **[Open the live 80×80 browser demo](https://kidce.github.io/Outdoor-FPV-Race-Display/)** — no WLED controller or LED matrix is required to experiment with layouts and the preview.
