@@ -303,6 +303,103 @@ test("completed heat remains DONE after the grace window when continuation is un
   assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
 });
 
+test("completed heat remains DONE when a same-round successor has unknown status", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const candidate = structuredClone(snapshot);
+  candidate.snapshotId = "unknown-successor";
+  candidate.capturedAt = "2026-09-06T10:00:00.000Z";
+  candidate.races[0].status = "complete";
+  candidate.races[0].timing = { ...candidate.races[0].timing, state: "complete", capturedAt: candidate.capturedAt, stoppedAt: candidate.capturedAt };
+  candidate.races[1].status = "unknown";
+  candidate.races[1].round = candidate.races[0].round;
+  candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
+
+  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:00:15.001Z") });
+  runtime.accept(candidate, { origin: "live" });
+
+  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
+});
+
+test("completed heat remains DONE while the trusted snapshot is degraded", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const candidate = structuredClone(snapshot);
+  candidate.snapshotId = "degraded-successor";
+  candidate.capturedAt = "2026-09-06T10:00:00.000Z";
+  candidate.quality.state = "degraded";
+  candidate.races[0].status = "complete";
+  candidate.races[0].timing = { ...candidate.races[0].timing, state: "complete", capturedAt: candidate.capturedAt, stoppedAt: candidate.capturedAt };
+  candidate.races[1].status = "scheduled";
+  candidate.races[1].round = candidate.races[0].round;
+  candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
+
+  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:00:15.001Z") });
+  runtime.accept(candidate, { origin: "live" });
+
+  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
+});
+
+test("an unrelated active race cannot replace the explicit current queue", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const candidate = structuredClone(snapshot);
+  candidate.snapshotId = "unrelated-active-race";
+  candidate.capturedAt = "2026-09-06T10:01:00.000Z";
+  candidate.races[0].status = "complete";
+  candidate.races[0].timing = { ...candidate.races[0].timing, state: "complete", capturedAt: candidate.capturedAt, stoppedAt: candidate.capturedAt };
+  candidate.races[1].status = "scheduled";
+  candidate.races.push({
+    ...structuredClone(candidate.races[1]),
+    id: "unrelated-rerun",
+    runId: "unrelated-rerun-2",
+    order: 99,
+    status: "running",
+    round: "Qualifier Round 2",
+    timing: { state: "running", capturedAt: candidate.capturedAt, startedAt: candidate.capturedAt, stoppedAt: null }
+  });
+  candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
+
+  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:01:01.000Z") });
+  runtime.accept(candidate, { origin: "live" });
+
+  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
+  assert.equal(runtime.getState().raceStatus, "complete");
+});
+
+test("DONE advances after 15 seconds without another source update", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const candidate = structuredClone(snapshot);
+  candidate.snapshotId = "done-timer";
+  candidate.capturedAt = "2026-09-06T10:00:00.000Z";
+  candidate.races[0].status = "complete";
+  candidate.races[0].timing = { ...candidate.races[0].timing, state: "complete", capturedAt: candidate.capturedAt, stoppedAt: candidate.capturedAt };
+  candidate.races[1].status = "scheduled";
+  candidate.races[1].round = candidate.races[0].round;
+  candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
+
+  let now = Date.parse("2026-09-06T10:00:01.000Z");
+  let pendingTimer = null;
+  const runtime = new RaceSourceRuntime({
+    storage: null,
+    now: () => now,
+    setTimeoutImpl: (callback, delay) => {
+      pendingTimer = { callback, delay };
+      return 1;
+    },
+    clearTimeoutImpl: () => {
+      pendingTimer = null;
+    }
+  });
+  runtime.accept(candidate, { origin: "live" });
+
+  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
+  assert.equal(pendingTimer?.delay, 14_000);
+
+  now = Date.parse("2026-09-06T10:00:15.000Z");
+  pendingTimer.callback();
+
+  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-19");
+  assert.equal(runtime.getState().raceStatus, "scheduled");
+});
+
 test("status trust does not cross event sessions when event and heat IDs are reused", async () => {
   const baseline = await fixture("snapshot-fresh.json");
   const cached = structuredClone(baseline);
