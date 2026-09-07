@@ -248,7 +248,26 @@ function asObservation(value) { return value instanceof SourceObservation ? valu
 
 function matchPilot(pilot, prior, used) { const index = prior.findIndex((candidate, position) => !used.has(position) && ((pilot.id && candidate.id === pilot.id) || (pilot.sourceId && candidate.sourceId === pilot.sourceId) || (pilot.slot !== undefined && candidate.slot === pilot.slot) || (pilot.callsign && candidate.callsign === pilot.callsign))); if (index < 0) return null; used.add(index); return prior[index]; }
 function mergePilots(pilots, prior = []) { if (!Array.isArray(pilots) || pilots.length === 0) return clone(prior); const used = new Set(); return pilots.map(pilot => { const previous = matchPilot(pilot, prior, used); if (!previous) return clone(pilot); const merged = { ...previous, ...pilot }; if (!Object.prototype.hasOwnProperty.call(pilot, 'video')) merged.video = previous.video; if (!Object.prototype.hasOwnProperty.call(pilot, 'match')) merged.match = previous.match; return merged; }); }
-function mergeRace(race, prior) { if (!prior) return clone(race); const merged = { ...prior, ...race }; if (Object.prototype.hasOwnProperty.call(race, 'timing') && race.timing && prior.timing) merged.timing = { ...prior.timing, ...race.timing }; if (Object.prototype.hasOwnProperty.call(race, 'pilots')) merged.pilots = mergePilots(race.pilots, prior.pilots); return merged; }
+function raceScopeField(value) {
+  const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  const qualifier = normalized.match(/^(?:q|qualifier round)\s*(\d+)$/);
+  if (qualifier) return `qualifier round ${qualifier[1]}`;
+  if (/^mains?$|^main events?$/.test(normalized)) return 'main events';
+  return normalized;
+}
+function sameHeatIdentity(left, right) {
+  if (!left || !right || left.id !== right.id) return false;
+  for (const field of ['phase', 'round', 'label']) {
+    const leftValue = raceScopeField(left[field]);
+    const rightValue = raceScopeField(right[field]);
+    if (leftValue || rightValue) return leftValue !== '' && leftValue === rightValue;
+  }
+  const leftHeat = isObject(left.heat) ? left.heat : null;
+  const rightHeat = isObject(right.heat) ? right.heat : null;
+  if (leftHeat || rightHeat) return Boolean(leftHeat && rightHeat && leftHeat.number === rightHeat.number && leftHeat.count === rightHeat.count);
+  return true;
+}
+function mergeRace(race, prior) { if (!prior || !sameHeatIdentity(race, prior)) return clone(race); const merged = { ...prior, ...race }; if (Object.prototype.hasOwnProperty.call(race, 'timing') && race.timing && prior.timing) merged.timing = { ...prior.timing, ...race.timing }; if (Object.prototype.hasOwnProperty.call(race, 'pilots')) merged.pilots = mergePilots(race.pilots, prior.pilots); return merged; }
 function mergePartialSnapshot(previous, observation, snapshotIdFactory) {
   const patch = {};
   if (observation.event !== undefined) patch.event = { ...previous.event, ...observation.event };
@@ -258,9 +277,16 @@ function mergePartialSnapshot(previous, observation, snapshotIdFactory) {
     if (observation.replaceRaces || !observation.races.length) {
       patch.races = observation.replaceRaces ? clone(observation.races) : clone(previous.races);
     } else {
-      const updates = new Map(observation.races.map(race => [race.id, race]));
-      patch.races = previous.races.map(prior => updates.has(prior.id) ? mergeRace(updates.get(prior.id), prior) : clone(prior));
-      for (const race of observation.races) if (!priorById.has(race.id)) patch.races.push(clone(race));
+      const updates = observation.races;
+      const consumed = new Set();
+      patch.races = previous.races.map(prior => {
+        const matchIndex = updates.findIndex((race, index) => !consumed.has(index) && sameHeatIdentity(race, prior));
+        if (matchIndex >= 0) { consumed.add(matchIndex); return mergeRace(updates[matchIndex], prior); }
+        const replacementIndex = updates.findIndex((race, index) => !consumed.has(index) && race.id === prior.id);
+        if (replacementIndex >= 0) { consumed.add(replacementIndex); return clone(updates[replacementIndex]); }
+        return clone(prior);
+      });
+      for (const [index, race] of updates.entries()) if (!consumed.has(index) && !priorById.has(race.id)) patch.races.push(clone(race));
     }
   }
   if (observation.raceStatus !== undefined) {

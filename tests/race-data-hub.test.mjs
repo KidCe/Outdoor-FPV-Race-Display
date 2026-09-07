@@ -71,6 +71,32 @@ test('partial observations preserve proven channels, accept reorder/rename, and 
   assert.equal(empty.races[0].pilots[0].video.channel, 'R8');
 });
 
+test('a new phase with a reused source race ID does not inherit the previous heat lineup', async () => {
+  const fresh = await fixture('snapshot-fresh.json');
+  const assembler = new RaceStateAssembler({ eventSessionId: fresh.eventSessionId });
+  assembler.assemble(fresh);
+
+  const mainObservation = new SourceObservation({
+    eventSessionId: fresh.eventSessionId,
+    source: fresh.sources[0],
+    capturedAt: '2026-09-06T10:01:00.000Z',
+    schedule: { currentRaceId: 'heat-18', currentIndex: 0, nextRaceIds: [] },
+    races: [{
+      ...fresh.races[0],
+      phase: 'Main Events',
+      round: 'Main Events',
+      label: 'Main Events (Heat 1/8)',
+      heat: { number: 1, count: 8 },
+      pilots: []
+    }]
+  });
+
+  const assembled = assembler.assemble(mainObservation);
+  const current = assembled.races.find(race => race.id === assembled.schedule.currentRaceId);
+  assert.equal(current.phase, 'Main Events');
+  assert.deepEqual(current.pilots, []);
+});
+
 test('validator enforces the frozen public shape and identity invariant', async () => {
   const fresh = await fixture('snapshot-fresh.json');
   assert.equal(validateSnapshot(fresh).valid, true);
