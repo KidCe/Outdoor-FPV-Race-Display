@@ -2,8 +2,9 @@ import { DisplayScene, projectRaceSchedule } from "./display-scene.js";
 import { OutputSession } from "./output-session.js";
 import { RaceDayProfile } from "./race-day-profile.js";
 import { RaceSourceRuntime } from "./race-source-runtime.js";
+import { isValidNextUpRace, MatrixCycleController } from "./matrix-cycle.js";
 import { ANNOUNCEMENT_DISPLAY_MS } from "./race-data-hub-client.js";
-import { isRaceRunning, raceStatusLabel } from "./race-status.js";
+import { mapRaceStatus, raceStatusLabel } from "./race-status.js";
 
 const byId = id => document.getElementById(id);
 const VIEW_LABELS = { current: "Current Heat", staging: "Next Up", next: "After Next" };
@@ -59,20 +60,23 @@ export class RaceDayAppHost {
     this.selectedPreset = "current";
     this.currentScene = null;
     this.lastReadback = null;
-    this.cycleTimer = 0;
-    this.cycleTicker = 0;
-    this.nextCycleAt = 0;
+    this.started = false;
+    this.cycleController = new MatrixCycleController({
+      onViewChange: () => {
+        if (this.started) queueMicrotask(() => this.renderAll());
+      }
+    });
     this.announcementTimers = new Map();
     this.hiddenAnnouncements = new Set();
   }
 
   async start() {
+    this.started = true;
     this.renderChannelMap();
     this.fillControls();
     this.bindEvents();
     this.configureModules();
     this.renderAll();
-    this.configureCycle();
     setInterval(() => this.renderStatus(), 1000);
     if (this.profile.source.enabled) await this.sourceRuntime.setEnabled(true);
     if (this.profile.output.enabled) await this.outputSession.setEnabled(true);
@@ -129,6 +133,7 @@ export class RaceDayAppHost {
   }
 
   renderAll() {
+    this.configureCycle();
     const snapshot = this.sourceState.snapshot;
     if (!snapshot) {
       this.currentScene = null;
@@ -153,11 +158,12 @@ export class RaceDayAppHost {
       byId("raceTitle").textContent = "—";
       byId("raceState").textContent = snapshot.quality?.state === "stale" ? "No active heat · stale Hub data" : "No active heat";
       this.renderStatus();
-      this.configureCycle();
       return;
     }
     try {
-      this.currentScene = this.sceneModule.project(snapshot, this.selectedView);
+      const cycleState = this.cycleController.getState();
+      const matrixView = cycleState.active ? cycleState.view : null;
+      this.currentScene = matrixView === "next" ? this.sceneModule.projectMatrix(snapshot, "next-up") : this.sceneModule.project(snapshot, this.selectedView);
       if (!this.currentScene.race) {
         this.renderWaitingPreview();
         byId("viewLabel").textContent = VIEW_LABELS[this.selectedView];
@@ -167,13 +173,12 @@ export class RaceDayAppHost {
         this.renderHeatQueue(this.currentScene.schedule);
         this.publishScene();
         this.renderStatus();
-        this.configureCycle();
         return;
       }
       this.sceneModule.render(byId("matrixPreview"), this.currentScene);
       const schema = this.sceneModule.getSchema();
       byId("eventName").textContent = this.currentScene.race.eventName;
-      byId("viewLabel").textContent = VIEW_LABELS[this.selectedView];
+      byId("viewLabel").textContent = cycleState.active ? (cycleState.view === "next" ? "Next Up" : "Current Heat") : VIEW_LABELS[this.selectedView];
       byId("raceTitle").textContent = `${this.currentScene.race.round} · ${this.currentScene.race.heat}`;
       byId("raceState").textContent = `${this.currentScene.race.statusLabel} · ${this.currentScene.race.pilots.length} pilots`;
       byId("previewFit").textContent = `${schema.canvas.width}×${schema.canvas.height} · ${schema.nodes.length}/40 nodes`;
@@ -186,7 +191,6 @@ export class RaceDayAppHost {
       byId("sessionMessage").className = "session-message notice error";
     }
     this.renderStatus();
-    this.configureCycle();
   }
 
   renderWaitingPreview() {
@@ -285,27 +289,37 @@ export class RaceDayAppHost {
     if (stale) byId("sourceAge").textContent += ageMs >= 600000 ? " · stale" : " · delayed";
   }
 
-  selectView(view, { fromCycle = false } = {}) {
+  selectView(view) {
     this.selectedView = view;
     document.querySelectorAll("[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === view));
-    if (!fromCycle) this.nextCycleAt = Date.now() + this.profile.cycle.seconds * 1000;
     this.renderAll();
   }
 
   configureCycle() {
-    clearTimeout(this.cycleTimer);
-    clearInterval(this.cycleTicker);
-    const firstRace = this.currentScene?.schedule?.[0];
-    const hasNext = this.currentScene?.schedule?.length > 1;
-    if (!this.profile.cycle.enabled) { byId("cycleStatus").textContent = "Cycle off"; return; }
-    if (!isRaceRunning(firstRace)) { byId("cycleStatus").textContent = "Waiting for current heat to run"; return; }
-    if (!hasNext) { byId("cycleStatus").textContent = "Waiting for next heat"; return; }
-    const milliseconds = this.profile.cycle.seconds * 1000;
-    this.nextCycleAt = Date.now() + milliseconds;
-    const updateCountdown = () => { byId("cycleStatus").textContent = `Switch in ${Math.max(1, Math.ceil((this.nextCycleAt - Date.now()) / 1000))}s`; };
-    updateCountdown();
-    this.cycleTicker = setInterval(updateCountdown, 250);
-    this.cycleTimer = setTimeout(() => this.selectView(this.selectedView === "current" ? "staging" : "current", { fromCycle: true }), milliseconds);
+    const snapshot = this.sourceState.snapshot;
+    const current = snapshot?.races?.find(race => race?.id === snapshot.schedule?.currentRaceId) || null;
+    const next = snapshot?.races?.find(race => race?.id === snapshot.schedule?.nextRaceIds?.[0]) || null;
+    const fresh = this.sourceState.quality === "fresh";
+    const wasActive = this.cycleController.getState().active;
+    const nextIsValid = isValidNextUpRace(current, next);
+    const cycleState = this.cycleController.update({
+      enabled: this.profile.cycle.enabled && fresh,
+      current,
+      next,
+      completeSeconds: this.profile.cycle.completeSeconds,
+      nextUpSeconds: this.profile.cycle.nextUpSeconds
+    });
+    const currentStatus = mapRaceStatus(current?.status);
+    if (wasActive && fresh && ["staging", "running"].includes(currentStatus)) {
+      this.selectedView = "current";
+      document.querySelectorAll("[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === "current"));
+    }
+    if (!byId("cycleStatus")) return;
+    if (!this.profile.cycle.enabled) byId("cycleStatus").textContent = "Cycle off";
+    else if (!fresh) byId("cycleStatus").textContent = "Waiting for fresh race data";
+    else if (currentStatus !== "complete") byId("cycleStatus").textContent = "Waiting for a completed current heat";
+    else if (!nextIsValid) byId("cycleStatus").textContent = "Waiting for a valid Next Up heat";
+    else byId("cycleStatus").textContent = `${cycleState.phase === "next-up" ? "Next Up" : "Complete"} for ${cycleState.delay / 1000}s`;
   }
 
   fillControls() {
@@ -326,12 +340,12 @@ export class RaceDayAppHost {
     byId("backgroundEffect").value = output.backgroundEffect;
     byId("backgroundEffectValue").textContent = `${output.backgroundEffect}%`;
     byId("cycleEnabled").checked = cycle.enabled;
-    byId("cycleSeconds").value = cycle.seconds;
+    byId("completeSeconds").value = cycle.completeSeconds;
+    byId("nextUpSeconds").value = cycle.nextUpSeconds;
     byId("headerGap").value = display.headerGap;
     byId("headerGapValue").textContent = `${display.headerGap}px`;
     byId("rowGap").value = display.rowGap;
     byId("rowGapValue").textContent = `${display.rowGap}px`;
-    byId("completedMarker").value = display.completedMarker;
     this.fillPresetControls();
   }
 
@@ -367,10 +381,9 @@ export class RaceDayAppHost {
     for (const [id, key, number] of [["eventUrl", "eventUrl"], ["connectorUrl", "connectorUrl"], ["hubUrl", "hubUrl"], ["reconcileSeconds", "reconcileSeconds", true]]) byId(id).addEventListener("change", event => this.updateProfile({ source: { [key]: number ? Number(event.target.value) : event.target.value } }));
     for (const [id, key, number] of [["transport", "transport"], ["wledUrl", "wledUrl"], ["serialBaud", "serialBaud", true], ["schemaId", "schemaId"], ["brightness", "brightness", true], ["backgroundEffect", "backgroundEffect", true]]) byId(id).addEventListener("input", event => this.updateProfile({ output: { [key]: number ? Number(event.target.value) : event.target.value } }));
     byId("cycleEnabled").addEventListener("change", event => { this.updateProfile({ cycle: { enabled: event.target.checked } }); this.configureCycle(); });
-    byId("cycleSeconds").addEventListener("change", event => { this.updateProfile({ cycle: { seconds: Number(event.target.value) } }); this.configureCycle(); });
+    for (const id of ["completeSeconds", "nextUpSeconds"]) byId(id).addEventListener("change", event => { this.updateProfile({ cycle: { [id]: Number(event.target.value) } }); this.configureCycle(); });
     for (const [id, key, number] of [["headerStyle", "headerStyle"], ["headerFrame", "headerFrame"], ["headerTextColor", "headerTextColor"], ["headerFrameColor", "headerFrameColor"], ["lineThickness", "lineThickness", true], ["headerFont", "font"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { presets: { [this.selectedPreset]: { [key]: number ? Number(event.target.value) : event.target.value } } } }));
     for (const [id, key] of [["headerGap", "headerGap"], ["rowGap", "rowGap"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { [key]: Number(event.target.value) } }));
-    byId("completedMarker").addEventListener("input", event => this.updateProfile({ display: { completedMarker: event.target.value } }));
     byId("channelColorMap").addEventListener("input", event => { const channel = event.target.dataset.channel; if (channel) this.updateProfile({ display: { channelColors: { [channel]: event.target.value } } }); });
     byId("installSchema").addEventListener("click", async () => { try { await this.outputSession.installSchema(this.sceneModule.getSchema()); } catch (error) { byId("sessionMessage").textContent = error.message; } });
     byId("exportSchema").addEventListener("click", () => { const schema = this.sceneModule.getSchema(); download(`${schema.schemaId}-${schema.schemaHash}.json`, "application/json", `${JSON.stringify(schema, null, 2)}\n`); });

@@ -1,4 +1,5 @@
 import { validateRaceEventSnapshot } from "./race-event-connector.js";
+import { isValidNextUpRace } from "./matrix-cycle.js";
 import { RACE_STATUS, mapRaceStatus, presentRaceStatus } from "./race-status.js";
 
 const VIEW_ORDER = ["current", "staging", "next"];
@@ -71,9 +72,11 @@ function compactRound(value) {
 }
 
 function compactHeat(race) {
-  if (race?.heat) return `H${race.heat.number}/${race.heat.count}`;
+  const sourceLabel = `${race?.phase || ""} ${race?.round || ""} ${race?.label || ""}`;
+  const prefix = /\b(main|mains)\b/i.test(sourceLabel) ? "M" : /\bfinal\b/i.test(sourceLabel) ? "F" : "H";
+  if (race?.heat) return `${prefix}${race.heat.number}/${race.heat.count}`;
   const match = String(race?.label || "").match(/(?:heat\s*)?(\d+)\s*\/\s*(\d+)/i);
-  return match ? `H${match[1]}/${match[2]}` : String(race?.label || "").slice(0, 10).toUpperCase();
+  return match ? `${prefix}${match[1]}/${match[2]}` : String(race?.label || "").slice(0, 10).toUpperCase();
 }
 
 function pilotKey(pilot) {
@@ -187,25 +190,28 @@ function addHeaderFrame(nodes, key, preset, width, headerY, headerHeight) {
   }
 }
 
-function completedBracketPoints(side, width, top, bottom) {
-  if (side === "left") return [[8, top], [4, top], [4, bottom], [8, bottom]];
-  return [[width - 9, top], [width - 5, top], [width - 5, bottom], [width - 9, bottom]];
+function completionPatternTiles(width) {
+  const y = 1;
+  const bottomY = 11;
+  const stride = Math.max(4, Math.floor(width / 12));
+  const left = 2;
+  const right = width - 3;
+  return [
+    [left, y], [left + stride, y], [left + stride * 2, y],
+    [right - stride * 2, bottomY], [right - stride, bottomY], [right, bottomY]
+  ].map(([x, tileY]) => ({ x, y: tileY, w: 3, h: 2 }));
 }
 
-function addCompletedMarker(nodes, width, headerY, headerHeight) {
+function addCompletedMarker(nodes, width) {
   const bind = "complete-marker";
-  const top = Math.max(0, headerY - 2);
-  const bottom = headerY + headerHeight + 2;
-  for (const side of ["left", "right"]) {
-    nodes.push({
-      id: `${bind}-${side}`,
-      type: "polyline",
-      bind,
-      points: completedBracketPoints(side, width, top, bottom),
-      color: 0xffffff,
-      thickness: 2
-    });
-  }
+  completionPatternTiles(width).forEach((tile, index) => nodes.push({
+    id: `${bind}-${index}`,
+    type: "rect",
+    bind,
+    ...tile,
+    filled: true,
+    color: 0xffffff
+  }));
 }
 
 export class DisplayScene {
@@ -233,12 +239,23 @@ export class DisplayScene {
       race: race ? { ...race, presetKey } : null,
       preset: this.profile.display.presets[presetKey],
       header: race ? `${race.statusLabel} ${race.heat}`.trim().toUpperCase() : "",
-      matrixHeader: race
-        ? race.status === RACE_STATUS.COMPLETE && this.profile.display.completedMarker !== "none" ? `DONE ${race.heat}` : race.heat
-        : "",
+      matrixHeader: race ? race.heat : "",
+      completionPattern: race?.status === RACE_STATUS.COMPLETE ? "checkerboard" : "none",
       matrixPresetKey,
       matrixPreset: this.profile.display.presets[matrixPresetKey]
     };
+  }
+
+  projectMatrix(snapshot, matrixView = "current") {
+    if (matrixView !== "next-up") return this.project(snapshot, "current");
+    const nextId = snapshot.schedule?.nextRaceIds?.[0];
+    const nextRace = snapshot.races?.find(race => race?.id === nextId);
+    if (!nextRace || !isValidNextUpRace(snapshot.races.find(race => race?.id === snapshot.schedule?.currentRaceId), nextRace)) {
+      return this.project(snapshot, "current");
+    }
+    const scene = this.project(snapshot, "staging");
+    const next = { ...scene, view: "next-up", race: scene.race ? { ...scene.race, presetKey: "next" } : null, matrixPresetKey: "next", matrixPreset: this.profile.display.presets.next };
+    return next;
   }
 
   getState(scene) {
@@ -254,7 +271,7 @@ export class DisplayScene {
     values.push({
       key: "complete-marker",
       color: colorNumber(this.profile.display.presets.current.headerFrameColor),
-      visible: scene.race?.status === RACE_STATUS.COMPLETE && this.profile.display.completedMarker !== "none"
+      visible: scene.completionPattern === "checkerboard"
     });
     const pilots = scene.race?.pilots || [];
     for (let index = 0; index < 8; index += 1) {
@@ -287,7 +304,7 @@ export class DisplayScene {
       addHeaderLines(nodes, key, preset, width, headerY, metrics.height);
       addHeaderFrame(nodes, key, preset, width, headerY, metrics.height);
     }
-    addCompletedMarker(nodes, width, headerY, fontMetrics(presets.current).height);
+    addCompletedMarker(nodes, width);
     const advance = 6 * display.bodyScale;
     const rowHeight = 7 * display.bodyScale;
     for (let index = 0; index < 8; index += 1) {
@@ -300,7 +317,7 @@ export class DisplayScene {
       format: "wled-fpv-layout",
       protocol: 1,
       schemaId: profile.output.schemaId,
-      revision: 2,
+      revision: 3,
       canvas: { width, height, background: colorNumber(display.backgroundColor), fps: 30 },
       nodes
     };
@@ -337,16 +354,11 @@ export class DisplayScene {
     if (matrixPreset.headerStyle === "double") {
       context.beginPath(); context.moveTo(11, Math.max(0, top - 2)); context.lineTo(width - 11, Math.max(0, top - 2)); context.moveTo(11, bottom + 2); context.lineTo(width - 11, bottom + 2); context.stroke();
     }
-    if (scene.race.status === RACE_STATUS.COMPLETE && this.profile.display.completedMarker !== "none") {
+    if (scene.race.status === RACE_STATUS.COMPLETE && scene.completionPattern === "checkerboard") {
       context.strokeStyle = this.profile.display.presets.current.headerFrameColor;
       context.lineWidth = this.profile.display.presets.current.lineThickness;
-      for (const side of ["left", "right"]) {
-        const points = completedBracketPoints(side, width, Math.max(0, this.layout.headerY - 2), this.layout.headerY + fontMetrics(this.profile.display.presets.current).height + 2);
-        context.beginPath();
-        context.moveTo(points[0][0], points[0][1]);
-        for (const [x, y] of points.slice(1)) context.lineTo(x, y);
-        context.stroke();
-      }
+      context.fillStyle = this.profile.display.presets.current.headerFrameColor;
+      for (const tile of completionPatternTiles(width)) context.fillRect(tile.x, tile.y, tile.w, tile.h);
     }
     const arrow = matrixPreset.headerFrame === "upward" ? "↑" : matrixPreset.headerFrame === "right-double" ? ">>" : matrixPreset.headerFrame === "right-single" ? ">" : matrixPreset.headerFrame === "inward" ? ">" : "";
     if (arrow) {

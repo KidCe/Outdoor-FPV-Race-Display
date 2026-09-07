@@ -420,7 +420,7 @@ test("LiveFPV and LiveTime replay flows through Hub, local and remote consumers,
 
     output.setLive(false);
     await sleep(20);
-    assert.ok(operations.some(command => command.op === "activate" && command.active === false));
+    assert.ok(operations.some(command => command.op === "activate" && command.on === false));
   } finally {
     displayClient?.close();
     queueClient?.close();

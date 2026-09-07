@@ -20,7 +20,7 @@ The schema contains the geometry for Current Heat, Staging Heat, and Next Up at 
 - no more than 24 bound values;
 - no race text, callsign, channel, status, or schedule position in the schema hash.
 
-The active race status is carried in the existing header value (`STAGING`, `RUNNING`, `COMPLETE`, or `UNKNOWN`) and the completed-current projection uses a compact `DONE Hx/y` header with an optional completion bracket marker. The marker is a pair of bound polyline nodes, so the physical 80×80 output gains terminal-state visibility without adding a second status text row or exceeding the device limits.
+The active race status is carried in the existing header value (`STAGING`, `RUNNING`, `COMPLETE`, or `UNKNOWN`) and the completed-current projection retains its compact heat header with a small checkerboard completion pattern. The pattern uses bound rect nodes, so the physical 80×80 output gains terminal-state visibility without adding a second status text row or exceeding the device limits.
 
 Changing a structural preset option creates a new schema hash. `OutputSession` first tries the installed schema and automatically installs the current schema when it is missing or changed, then resumes the pending live state.
 
@@ -29,5 +29,5 @@ Changing a structural preset option creates a new schema hash. `OutputSession` f
 1. `RaceSourceRuntime` accepts a validated snapshot and retains it as trusted state.
 2. `DisplayScene` projects the Current, Next One, and After That races for the verification strip.
 3. The selected view becomes one immutable scene for both browser preview and output values.
-4. If cycling is enabled and the current race maps to `running`, `RaceDayAppHost` alternates Current Heat and Next Up at the configured interval.
+4. If cycling is enabled, the current race is `complete`, the snapshot is fresh, and the first explicit successor is valid, `RaceDayAppHost` alternates the completed Current Heat and Next Up using their independent configured durations.
 5. `OutputSession` sends the selected scene whenever Live output is enabled. Connection recovery and schema repair require no operator button sequence.

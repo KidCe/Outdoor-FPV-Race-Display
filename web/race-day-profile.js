@@ -55,7 +55,7 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
     channelWidth: 2,
     channelGap: 1,
     pilotWidth: 15,
-    completedMarker: "brackets",
+    completedMarker: "checkerboard",
     backgroundColor: "#000000",
     pilotTextColor: "#ffffff",
     presets: DEFAULT_PRESETS,
@@ -63,7 +63,9 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
   },
   cycle: {
     enabled: false,
-    seconds: 5
+    seconds: 5,
+    completeSeconds: 5,
+    nextUpSeconds: 5
   }
 });
 
@@ -151,7 +153,21 @@ export function validateRaceDayProfile(candidate) {
   profile.output.brightness = boundedNumber(profile.output.brightness, 50, 0, 100);
   profile.output.backgroundEffect = boundedNumber(profile.output.backgroundEffect, 0, 0, 25);
   profile.cycle.enabled = Boolean(profile.cycle.enabled);
-  profile.cycle.seconds = boundedNumber(profile.cycle.seconds, 5, 2, 60);
+  const candidateCycle = candidate.cycle && typeof candidate.cycle === "object" ? candidate.cycle : {};
+  const legacyCycleSeconds = boundedNumber(candidateCycle.seconds, 5, 2, 60);
+  profile.cycle.seconds = legacyCycleSeconds;
+  profile.cycle.completeSeconds = boundedNumber(
+    Object.prototype.hasOwnProperty.call(candidateCycle, "completeSeconds") ? profile.cycle.completeSeconds : legacyCycleSeconds,
+    5,
+    2,
+    60
+  );
+  profile.cycle.nextUpSeconds = boundedNumber(
+    Object.prototype.hasOwnProperty.call(candidateCycle, "nextUpSeconds") ? profile.cycle.nextUpSeconds : legacyCycleSeconds,
+    5,
+    2,
+    60
+  );
   profile.display.width = boundedNumber(profile.display.width, 80, 16, 255);
   profile.display.height = boundedNumber(profile.display.height, 80, 16, 255);
   profile.display.bodyScale = boundedNumber(profile.display.bodyScale, 1, 1, 3);
@@ -160,7 +176,7 @@ export function validateRaceDayProfile(candidate) {
   profile.display.channelWidth = boundedNumber(profile.display.channelWidth, 2, 1, 5);
   profile.display.channelGap = boundedNumber(profile.display.channelGap, 1, 0, 4);
   profile.display.pilotWidth = boundedNumber(profile.display.pilotWidth, 15, 4, 30);
-  profile.display.completedMarker = ["brackets", "none"].includes(profile.display.completedMarker) ? profile.display.completedMarker : "brackets";
+  profile.display.completedMarker = "checkerboard";
   profile.display.backgroundColor = validColor(profile.display.backgroundColor, "#000000");
   profile.display.pilotTextColor = validColor(profile.display.pilotTextColor, "#ffffff");
   for (const key of ["current", "staging", "next"]) {
@@ -208,7 +224,12 @@ export class RaceDayProfile {
   }
   get() { return clone(this.profile); }
   update(patch) {
-    this.profile = validateRaceDayProfile(merge(this.profile, patch));
+    const merged = merge(this.profile, patch);
+    if (patch?.cycle && typeof patch.cycle === "object" && Object.prototype.hasOwnProperty.call(patch.cycle, "seconds")) {
+      if (!Object.prototype.hasOwnProperty.call(patch.cycle, "completeSeconds")) merged.cycle.completeSeconds = patch.cycle.seconds;
+      if (!Object.prototype.hasOwnProperty.call(patch.cycle, "nextUpSeconds")) merged.cycle.nextUpSeconds = patch.cycle.seconds;
+    }
+    this.profile = validateRaceDayProfile(merged);
     this.storage.save(this.profile);
     return this.get();
   }

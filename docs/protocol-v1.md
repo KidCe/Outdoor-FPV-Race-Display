@@ -31,6 +31,8 @@ A layout is identified by three fields:
 | `schema.commit` | Persist and optionally activate the schema. |
 | `schema.abort` | Discard the in-progress layout. |
 
+The `activate` operation uses the boolean `on` field (`{"on":true}` or `{"on":false}`). This matches the firmware command parser; `active` is not a recognized activation field.
+
 The chunked installation path keeps every serial/WebSocket message small. The module settings page additionally accepts a complete exported JSON schema file and compiles it into a fixed-size binary scene in WLED's filesystem.
 
 Controllers should also split a complete live state into patches of no more than eight values. The first `state` command uses `replace: true` and carries brightness/background controls; following commands use `replace: false`. This keeps USB serial lines below WLED's receive-buffer limit while using the same operations over both transports.

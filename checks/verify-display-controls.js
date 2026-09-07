@@ -53,6 +53,11 @@ const checks = [
   [profile.output.brightness === 50 && profile.output.backgroundEffect === 0, "first-run output defaults must be safe"],
   [profile.display.backgroundColor === "#000000", "first-run display background must be black"],
   [scene.race?.id === fixture.schedule.currentRaceId && values.some(value => value.key === "ch0"), "fixture projection must produce a current race state"],
+  [schema.nodes.filter(node => node.bind === "complete-marker").length === 6 && schema.nodes.filter(node => node.bind === "complete-marker").every(node => node.type === "rect"), "complete state must use six checkerboard rect nodes"],
+  [scene.matrixHeader === scene.race.heat && !/DONE/i.test(scene.matrixHeader), "matrix headers must retain compact heat text without a DONE label"],
+  [webUi.includes('id="completeSeconds"') && webUi.includes('id="nextUpSeconds"') && !/DONE/i.test(webUi), "Control Desk must expose separate cycle durations without a DONE label"],
+  [webApp.includes("projectMatrix") && webApp.includes("completeSeconds") && webApp.includes("nextUpSeconds"), "Control Desk host must wire the matrix cycle and both durations"],
+  [profile.cycle.completeSeconds === 5 && profile.cycle.nextUpSeconds === 5, "cycle defaults must be five seconds for Complete and Next Up"],
 ];
 
 const failures = checks.filter(([passed]) => !passed).map(([, message]) => message);

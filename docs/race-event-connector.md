@@ -4,7 +4,7 @@ The browser display consumes `org.fpv.race-event.snapshot` version 1 from LiveTi
 
 Channel colors now belong to the versioned race-day profile and are applied to every projected heat. Partial live packets may omit video metadata; `DisplayScene` resolves a missing assignment from the same pilot elsewhere in the event snapshot instead of clearing a previously known channel.
 
-`web/race-status.js` is the shared consumer seam for race lifecycle presentation. It maps canonical Hub values and legacy LiveTime values such as `ready`, `racing`, and `completed` to the exact display labels `STAGING`, `RUNNING`, and `COMPLETE`; unsupported or missing values render as `UNKNOWN`. Connection state, source quality, and errors remain separate from the race status. A completed current heat uses the compact 5×7 `DONE Hx/y` header plus the optional completion bracket marker.
+`web/race-status.js` is the shared consumer seam for race lifecycle presentation. It maps canonical Hub values and legacy LiveTime values such as `ready`, `racing`, and `completed` to the exact display labels `STAGING`, `RUNNING`, and `COMPLETE`; unsupported or missing values render as `UNKNOWN`. Connection state, source quality, and errors remain separate from the race status. A completed current heat keeps its compact 5×7 heat header and adds the checkerboard completion pattern.
 
 ## Local use
 

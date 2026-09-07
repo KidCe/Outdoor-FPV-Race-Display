@@ -47,13 +47,13 @@ test("canonical status transitions drive current, queue, preview, and physical s
     assert.equal(scene.race.status, raw);
     assert.equal(scene.race.statusLabel, label);
     assert.match(scene.header, new RegExp(`^${label}\\b`));
-    assert.equal(scene.matrixHeader, label === "COMPLETE" ? "DONE H18/24" : "H18/24");
+    assert.equal(scene.matrixHeader, "H18/24");
     assert.equal(scene.matrixPresetKey, label === "COMPLETE" ? "current" : matrixPresetKey);
     const values = display.getState(scene);
     const visiblePresetKey = label === "COMPLETE" ? "current" : matrixPresetKey;
     const visibleHeader = values.find(value => value.key === `header-${visiblePresetKey}`);
     assert.equal(visibleHeader.visible, true);
-    assert.equal(visibleHeader.text, label === "COMPLETE" ? "DONE H18/24" : "H18/24");
+    assert.equal(visibleHeader.text, "H18/24");
     if (label !== "COMPLETE") assert.doesNotMatch(visibleHeader.text, new RegExp(label));
     assert.equal(values.filter(value => value.key.startsWith("header-") && value.visible).length, 1);
   }
@@ -70,7 +70,7 @@ test("canonical status transitions drive current, queue, preview, and physical s
   assert.ok(new Set(schema.nodes.filter(node => node.bind).map(node => node.bind)).size <= 24);
 });
 
-test("completed current heat uses a compact DONE header and completion marker", async () => {
+test("completed current heat keeps its compact header and checkerboard completion pattern", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
   snapshot.races[0].status = "complete";
   const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
@@ -79,9 +79,11 @@ test("completed current heat uses a compact DONE header and completion marker", 
   const values = display.getState(scene);
 
   assert.equal(scene.matrixPresetKey, "current");
-  assert.equal(scene.matrixHeader, "DONE H18/24");
+  assert.equal(scene.matrixHeader, "H18/24");
+  assert.equal(scene.completionPattern, "checkerboard");
   assert.equal(values.find(value => value.key === "complete-marker").visible, true);
-  assert.equal(display.getSchema().nodes.filter(node => node.bind === "complete-marker").length, 2);
+  assert.equal(display.getSchema().nodes.filter(node => node.bind === "complete-marker").length, 6);
+  assert.ok(display.getSchema().nodes.filter(node => node.bind === "complete-marker").every(node => node.type === "rect"));
 });
 
 test("next-up projection keeps the right-arrow group and compact ASCII header", async () => {

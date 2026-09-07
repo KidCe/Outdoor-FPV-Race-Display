@@ -282,7 +282,7 @@ export class OutputSession {
     }
   }
   async deactivate() {
-    if (this.ready()) await this.sendCommand("activate", { active: false }, 2000);
+    if (this.ready()) await this.sendCommand("activate", { on: false }, 2000);
     this.setState({ controlling: false });
   }
   async readFrame(source = "output") {
