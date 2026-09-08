@@ -444,6 +444,9 @@ class BusHub75Matrix : public Bus {
     bool _isQuadScan = false;
     CRGB *_ledBuffer = nullptr; // note: using uint32_t buffer is only 2% faster and not worth the extra RAM
     byte *_ledsDirty = nullptr;
+    bool _frameDirty = false;
+    uint32_t _lastFrameFlipAt = 0;
+    uint16_t _framePeriodMs = 17; // conservative fallback for the driver's refresh period
     // workaround for missing constants on include path for non-MM
     static constexpr uint32_t IS_BLACK = 0x000000u;
     static constexpr uint32_t IS_DARKGREY = 0x333333u;
