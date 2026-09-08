@@ -69,6 +69,23 @@ test("complete and Next Up rotate on independent five-second phases", () => {
   assert.deepEqual(controller.getState(), { active: true, view: "current", phase: "complete", delay: 5000 });
 });
 
+test("cycle tick advances after a throttled timer deadline", () => {
+  let now = 0;
+  let timerId = 0;
+  const timers = new Map();
+  const controller = new MatrixCycleController({
+    now: () => now,
+    setTimeoutImpl: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
+    clearTimeoutImpl: id => timers.delete(id)
+  });
+
+  controller.update({ enabled: true, current: { id: "heat-1", status: "complete" }, next: { id: "heat-2", status: "scheduled" } });
+  now = 5001;
+  assert.equal(controller.tick(), true);
+  assert.deepEqual(controller.getState(), { active: true, view: "next", phase: "next-up", delay: 5000 });
+  assert.equal(timers.size, 1);
+});
+
 test("cycle changes only the rendered view and disabled cycle keeps Current and Next One semantic cards", async () => {
   const snapshot = completedMainSnapshot(await fixture("snapshot-fresh.json"));
   const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();

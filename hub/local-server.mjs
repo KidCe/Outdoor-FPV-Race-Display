@@ -346,6 +346,7 @@ export class RaceHubRuntime {
     writePassword = process.env.FPV_HUB_WRITE_PASSWORD || DEFAULTS.writePassword,
     refreshMs = Number(process.env.FPV_HUB_REFRESH_MS || DEFAULTS.refreshMs),
     statePath = process.env.FPV_HUB_STATE_PATH || DEFAULTS.statePath,
+    enableTestSnapshotInjection = process.env.FPV_HUB_ENABLE_TEST_SNAPSHOT_INJECTION === "1",
     fetchImpl = globalThis.fetch
   } = {}) {
     this.host = host;
@@ -353,7 +354,7 @@ export class RaceHubRuntime {
     this.source = new LiveTimeQueHubSource({ connectorUrl, sourceUrl, fetchImpl });
     this.store = new TrustedStore({ persistencePath: statePath });
     this.hub = new RaceDataHub({ source: this.source, store: this.store });
-    this.server = createHubServer({ store: this.store, writePassword, configureSource: sourceUrl => this.configureSource(sourceUrl) });
+    this.server = createHubServer({ store: this.store, writePassword, configureSource: sourceUrl => this.configureSource(sourceUrl), enableTestSnapshotInjection });
     this.refreshMs = Math.max(5000, refreshMs);
     this.pollTimer = null;
     this.streamAbort = null;

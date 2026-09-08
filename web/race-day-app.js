@@ -282,6 +282,7 @@ export class RaceDayAppHost {
   }
 
   renderStatus() {
+    if (this.cycleController.tick() && this.started) queueMicrotask(() => this.renderAll());
     const source = this.sourceState;
     const output = this.outputState;
     const sourceName = this.profile.source.mode === "hub" ? "Race Data Hub" : "LiveTime";

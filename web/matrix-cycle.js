@@ -29,6 +29,7 @@ export class MatrixCycleController {
     this.onViewChange = onViewChange;
     this.timer = 0;
     this.generation = 0;
+    this.deadline = 0;
     this.signature = "";
     this.completeDelay = secondsToMilliseconds(MATRIX_CYCLE_DEFAULTS.completeSeconds, MATRIX_CYCLE_DEFAULTS.completeSeconds);
     this.nextUpDelay = secondsToMilliseconds(MATRIX_CYCLE_DEFAULTS.nextUpSeconds, MATRIX_CYCLE_DEFAULTS.nextUpSeconds);
@@ -59,6 +60,16 @@ export class MatrixCycleController {
     return this.getState();
   }
 
+  // A backgrounded browser may throttle or suspend setTimeout callbacks. The
+  // wall-clock deadline keeps the cycle deterministic when the host resumes.
+  tick() {
+    if (!this.state.active || this.now() < this.deadline) return false;
+    if (this.timer) this.clearTimeoutImpl(this.timer);
+    this.timer = 0;
+    this.startPhase(this.state.phase === "complete" ? "next-up" : "complete");
+    return true;
+  }
+
   interrupt() {
     this.stop();
     return this.getState();
@@ -67,6 +78,7 @@ export class MatrixCycleController {
   stop() {
     if (this.timer) this.clearTimeoutImpl(this.timer);
     this.timer = 0;
+    this.deadline = 0;
     this.generation += 1;
     this.signature = "";
     this.setState({ active: false, view: "current", phase: "idle", delay: 0 });
@@ -78,6 +90,7 @@ export class MatrixCycleController {
     const view = phase === "next-up" ? "next" : "current";
     const delay = phase === "next-up" ? this.nextUpDelay : this.completeDelay;
     this.setState({ active: true, view, phase, delay });
+    this.deadline = this.now() + delay;
     this.timer = this.setTimeoutImpl(() => {
       if (generation !== this.generation) return;
       this.timer = 0;
