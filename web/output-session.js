@@ -113,13 +113,20 @@ export class SerialOutputAdapter {
         if (streamEnded) {
           if (port === this.port && !this.closing) {
             try { await port.close(); } catch {}
+            // onClose may synchronously ask the adapter to close. Clear the
+            // current read task first so close() never awaits readLoop from
+            // inside readLoop itself.
+            this.readTask = null;
             this.onClose(new Error("USB display serial stream ended."), this);
           }
           return;
         }
       }
     } catch (error) {
-      if (port === this.port && !this.closing) this.onClose(error, this);
+      if (port === this.port && !this.closing) {
+        this.readTask = null;
+        this.onClose(error, this);
+      }
     }
   }
   async send(text) {

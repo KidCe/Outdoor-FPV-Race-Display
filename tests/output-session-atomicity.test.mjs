@@ -140,6 +140,9 @@ test("OutputSession retains a bootstrap scene until output becomes live and conn
 
 test("SerialOutputAdapter treats an ended USB read stream as a disconnect", async () => {
   const disconnects = [];
+  let adapter;
+  let closeFinished;
+  const closed = new Promise(resolve => { closeFinished = resolve; });
   const port = {
     readable: {
       getReader() {
@@ -152,13 +155,14 @@ test("SerialOutputAdapter treats an ended USB read stream as a disconnect", asyn
     writable: { getWriter() { return { async write() {}, releaseLock() {} }; } },
     async close() {}
   };
-  const adapter = new SerialOutputAdapter({
+  adapter = new SerialOutputAdapter({
     navigatorRef: { serial: { async getPorts() { return [port]; } } },
-    onClose: error => disconnects.push(error)
+    onClose: error => { disconnects.push(error); void adapter.close().then(closeFinished); }
   });
 
   await adapter.connect({ serialBaud: 115200 });
   await adapter.readTask;
+  await closed;
 
   assert.equal(disconnects.length, 1);
   assert.match(disconnects[0].message, /serial stream ended/);
