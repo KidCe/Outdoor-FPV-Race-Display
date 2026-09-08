@@ -36,7 +36,7 @@ test("FPV v1 capacity is a fixed firmware scene budget, not an 80x80 LED limit",
 
   assert.equal(schema.canvas.width, 80);
   assert.equal(schema.canvas.height, 80);
-  assert.equal(schema.nodes.length, 38);
+  assert.equal(schema.nodes.length, 40);
   assert.ok(schema.nodes.length <= 40);
   assert.match(sceneHeader, /static constexpr uint8_t MAX_NODES = 40;/);
   assert.match(sceneHeader, /Node nodes\[MAX_NODES\]/);
@@ -44,13 +44,13 @@ test("FPV v1 capacity is a fixed firmware scene budget, not an 80x80 LED limit",
   assert.match(sceneHeader, /scene\.nodeCount >= MAX_NODES/);
 });
 
-test("current completion marker is a partial tile motif, not a complete 80x80 checkerboard border", async () => {
+test("current completion marker is a complete 80x80 checkerboard border", async () => {
   const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
   const schema = new DisplayScene(profile).getSchema();
   const completionNodes = schema.nodes.filter(node => node.bind === "complete-marker");
 
-  assert.equal(completionNodes.length, 6);
+  assert.equal(completionNodes.length, 8);
   assert.ok(completionNodes.every(node => node.type === "rect" && node.filled === true));
-  assert.equal(hasCompleteCanvasBorder(completionNodes, schema.canvas.width, schema.canvas.height), false);
+  assert.equal(hasCompleteCanvasBorder(completionNodes, schema.canvas.width, schema.canvas.height), true);
 });
 
