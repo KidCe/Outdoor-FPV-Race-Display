@@ -34,4 +34,9 @@ button:hover { filter: brightness(1.12); }
 .announcement .body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .announcement.cleared, .announcement.expired { border-left-color: #b7bec8; opacity: .72; }
 .announcement-actions { margin-top: 4px; }
+.metadata-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.override-toggle { display: flex; grid-template-columns: none; align-items: center; gap: 8px; }
+.override-toggle input { width: auto; }
+input[readonly] { background: #eef0f3; color: #5c6673; }
+button.primary { background: #236b42; }
 @media (max-width: 560px) { main { padding: 24px 12px 48px; } .card { padding: 16px; } }

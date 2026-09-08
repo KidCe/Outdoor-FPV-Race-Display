@@ -29,13 +29,20 @@
     </section>
 
     <section class="card" aria-labelledby="event-heading">
-      <h2 id="event-heading">Active event</h2>
-      <form id="event-form">
-        <label>Event session ID<input id="event-session-id" required maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:-]*"></label>
-        <label>Event name<input id="event-name" maxlength="200"></label>
-        <label>LiveFPV scoring URL<input id="event-source-url" type="url" placeholder="https://example.livefpv.com/live/scoring/"></label>
-        <div class="actions"><button type="submit">Select event</button><button type="button" id="deactivate" class="danger">Deactivate event</button></div>
+      <h2 id="event-heading">LiveFPV source</h2>
+      <p class="lede">Enter the LiveFPV organization or scoring URL once. The Hub loads the event session and name automatically.</p>
+      <form id="source-form">
+        <label>LiveFPV URL<input id="event-source-url" type="url" required placeholder="https://example.livefpv.com/live/"></label>
+        <div class="actions"><button type="submit" class="primary">Accept URL &amp; connect</button><button type="button" id="disconnect-source" class="danger">Disconnect source</button></div>
       </form>
+      <p id="source-message" class="message" role="status" aria-live="polite"></p>
+      <label class="override-toggle"><input id="manual-metadata" type="checkbox"> Edit detected metadata manually</label>
+      <div class="metadata-grid">
+        <label>Event session ID<input id="event-session-id" readonly maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._:-]*" aria-describedby="metadata-hint"></label>
+        <label>Event name<input id="event-name" readonly maxlength="200" aria-describedby="metadata-hint"></label>
+      </div>
+      <p id="metadata-hint" class="hint">These values are filled from the accepted source. Manual editing is an expert fallback and is not required to connect.</p>
+      <div class="actions"><button type="button" id="apply-metadata" class="secondary" disabled>Apply metadata override</button></div>
     </section>
 
     <section class="card" aria-labelledby="announcement-heading">

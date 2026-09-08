@@ -47,13 +47,13 @@ test("canonical status transitions drive current, queue, preview, and physical s
     assert.equal(scene.race.status, raw);
     assert.equal(scene.race.statusLabel, label);
     assert.match(scene.header, new RegExp(`^${label}\\b`));
-    assert.equal(scene.matrixHeader, "H18/24");
+    assert.equal(scene.matrixHeader, "Q3 H18/24");
     assert.equal(scene.matrixPresetKey, label === "COMPLETE" ? "current" : matrixPresetKey);
     const values = display.getState(scene);
     const visiblePresetKey = label === "COMPLETE" ? "current" : matrixPresetKey;
     const visibleHeader = values.find(value => value.key === `header-${visiblePresetKey}`);
     assert.equal(visibleHeader.visible, true);
-    assert.equal(visibleHeader.text, "H18/24");
+    assert.equal(visibleHeader.text, "Q3 H18/24");
     if (label !== "COMPLETE") assert.doesNotMatch(visibleHeader.text, new RegExp(label));
     assert.equal(values.filter(value => value.key.startsWith("header-") && value.visible).length, 1);
   }
@@ -79,10 +79,10 @@ test("completed current heat keeps its compact header and checkerboard completio
   const values = display.getState(scene);
 
   assert.equal(scene.matrixPresetKey, "current");
-  assert.equal(scene.matrixHeader, "H18/24");
+  assert.equal(scene.matrixHeader, "Q3 H18/24");
   assert.equal(scene.completionPattern, "checkerboard");
   assert.equal(values.find(value => value.key === "complete-marker").visible, true);
-  assert.equal(display.getSchema().nodes.filter(node => node.bind === "complete-marker").length, 6);
+  assert.equal(display.getSchema().nodes.filter(node => node.bind === "complete-marker").length, 8);
   assert.ok(display.getSchema().nodes.filter(node => node.bind === "complete-marker").every(node => node.type === "rect"));
 });
 
@@ -101,9 +101,9 @@ test("next-up projection keeps the right-arrow group and compact ASCII header", 
   assert.equal(scene.race.id, "heat-20");
   assert.equal(scene.race.status, RACE_STATUS.STAGING);
   assert.equal(scene.matrixPresetKey, "next");
-  assert.equal(scene.matrixHeader, "H20/24");
+  assert.equal(scene.matrixHeader, "Q3 H20/24");
   assert.equal(values.find(value => value.key === "header-next").visible, true);
-  assert.equal(values.find(value => value.key === "header-next").text, "H20/24");
+  assert.equal(values.find(value => value.key === "header-next").text, "Q3 H20/24");
   assert.match(scene.matrixHeader, /^[ -~]+$/);
   assert.ok(scene.matrixHeader.length <= 40);
 });

@@ -231,18 +231,27 @@ test('local HTTP/SSE transport serves bootstrap, Last-Event-ID replay, and healt
 
 test('local Hub Admin surface serves diagnostics and protects event selection/deactivation', async () => {
   const store = new TrustedStore({ epoch: 'admin-epoch' });
-  const server = createHubServer({ store, writePassword: 'manager-password', heartbeatMs: 0 });
+  let acceptedSource = null;
+  const server = createHubServer({ store, writePassword: 'manager-password', heartbeatMs: 0, configureSource: async sourceUrl => { acceptedSource = sourceUrl; return { sourceUrl, status: store.getStatus(), snapshot: store.snapshot }; } });
   const port = await listen(server);
   try {
     const admin = await fetch(`http://127.0.0.1:${port}/admin`);
     assert.equal(admin.status, 200);
-    assert.match(await admin.text(), /Race Data Hub Admin/);
+    const adminMarkup = await admin.text();
+    assert.match(adminMarkup, /Race Data Hub Admin/);
+    assert.match(adminMarkup, /Accept URL &amp; connect/);
     const denied = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventSessionId: 'aircrasher-session-1' }) });
     assert.equal(denied.status, 401);
     const selected = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: JSON.stringify({ eventSessionId: 'aircrasher-session-1', event: { id: 'aircrasher-event', name: 'Aircrasher Open' } }) });
     assert.equal(selected.status, 200);
     assert.equal((await selected.json()).activeEvent, 'aircrasher-session-1');
     assert.equal(store.active, true);
+    const deniedSource = await fetch(`http://127.0.0.1:${port}/api/v1/admin/source`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceUrl: 'https://example.livefpv.com/' }) });
+    assert.equal(deniedSource.status, 401);
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/v1/admin/source`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: JSON.stringify({ sourceUrl: 'https://example.livefpv.com/live/' }) });
+    assert.equal(accepted.status, 200);
+    assert.equal(acceptedSource, 'https://example.livefpv.com/live/');
+    assert.equal((await accepted.json()).snapshot, null);
     const deactivated = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event/deactivate`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: '{}' });
     assert.equal(deactivated.status, 200);
     assert.equal(store.active, false);
@@ -252,6 +261,20 @@ test('local Hub Admin surface serves diagnostics and protects event selection/de
   } finally {
     await close(server);
   }
+});
+
+test('Hub metadata override changes display metadata without changing source identity', async () => {
+  const base = await fixture('snapshot-fresh.json');
+  const store = new TrustedStore({ eventSessionId: base.eventSessionId });
+  store.publish(base);
+  const override = store.overrideEventMetadata({ eventSessionId: base.eventSessionId, event: { name: 'Operator event name', sourceUrl: base.event.sourceUrl } });
+  assert.equal(override.id, base.event.id);
+  assert.equal(store.snapshot.event.name, 'Operator event name');
+  const next = structuredClone(base);
+  next.snapshotId = 'metadata-override-next';
+  next.capturedAt = '2026-09-06T10:01:00.000Z';
+  store.publish(next);
+  assert.equal(store.snapshot.event.name, 'Operator event name');
 });
 
 test('announcement writes require the shared password and remain event-scoped', async () => {

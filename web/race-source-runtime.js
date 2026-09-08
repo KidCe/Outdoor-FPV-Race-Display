@@ -200,6 +200,7 @@ export class RaceSourceRuntime {
 
   configure(config) {
     const next = {
+      mode: config.mode === "hub" || (!config.mode && config.hubUrl) ? "hub" : "live",
       connectorUrl: String(config.connectorUrl || "").trim(),
       hubUrl: String(config.hubUrl || "").trim(),
       sourceUrl: String(config.sourceUrl || config.eventUrl || "").trim(),
@@ -223,7 +224,11 @@ export class RaceSourceRuntime {
     this.enabled = true;
     const generation = ++this.generation;
     this.setState({ connection: "connecting", error: "" });
-    if (this.config.hubUrl) {
+    if (this.config.mode === "hub") {
+      if (!this.config.hubUrl) {
+        this.setState({ connection: "error", error: "Enter a Race Data Hub URL before connecting." });
+        return;
+      }
       try {
         const hub = this.hubClientFactory({ hubUrl: this.config.hubUrl, storage: this.storage, now: this.now, onState: state => { if (generation !== this.generation || !this.enabled) return; const snapshot = prioritizeCurrentRace(state.snapshot, this.now()); this.setState({ connection: state.connection === "live" ? "connected" : state.connection, snapshot, raceStatus: getActiveRaceStatus(snapshot) ?? state.raceStatus, lastDataAt: state.lastDataAt, sourceCapturedAt: state.sourceCapturedAt, error: state.error, announcements: state.announcements, quality: state.quality }); this.scheduleDoneGraceTransition(snapshot); } });
         this.hubClient = hub;

@@ -79,6 +79,15 @@ function compactHeat(race) {
   return match ? `${prefix}${match[1]}/${match[2]}` : String(race?.label || "").slice(0, 10).toUpperCase();
 }
 
+function matrixHeaderForRace(race) {
+  const heat = typeof race?.heat === "string" ? race.heat : compactHeat(race);
+  const round = compactRound(race?.round || race?.phase);
+  // A bare M/F/Q is already encoded by the heat prefix. Include the round
+  // number when the source provides one, e.g. Q2 H3/3, without producing
+  // duplicate headers such as M M1/32 for Main Events.
+  return round && /\d/.test(round) ? `${round} ${heat}` : heat;
+}
+
 function pilotKey(pilot) {
   return String(pilot?.id || pilot?.callsign || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -191,15 +200,17 @@ function addHeaderFrame(nodes, key, preset, width, headerY, headerHeight) {
 }
 
 function completionPatternTiles(width) {
-  const y = 1;
-  const bottomY = 11;
-  const stride = Math.max(4, Math.floor(width / 12));
-  const left = 2;
-  const right = width - 3;
-  return [
-    [left, y], [left + stride, y], [left + stride * 2, y],
-    [right - stride * 2, bottomY], [right - stride, bottomY], [right, bottomY]
-  ].map(([x, tileY]) => ({ x, y: tileY, w: 3, h: 2 }));
+  const tileWidth = Math.max(2, Math.floor(width / 10));
+  const topStart = Math.max(0, Math.floor(width / 40));
+  const columnStep = Math.max(tileWidth * 2, Math.floor(width / 4));
+  const bottomShift = Math.max(1, Math.floor(width / 8));
+  const rows = [topStart, topStart + bottomShift];
+  return rows.flatMap((start, row) => Array.from({ length: 4 }, (_, column) => ({
+    x: Math.min(width - tileWidth, start + column * columnStep),
+    y: row === 0 ? 1 : 11,
+    w: tileWidth,
+    h: 2
+  })));
 }
 
 function addCompletedMarker(nodes, width) {
@@ -239,7 +250,7 @@ export class DisplayScene {
       race: race ? { ...race, presetKey } : null,
       preset: this.profile.display.presets[presetKey],
       header: race ? `${race.statusLabel} ${race.heat}`.trim().toUpperCase() : "",
-      matrixHeader: race ? race.heat : "",
+      matrixHeader: race ? matrixHeaderForRace(race) : "",
       completionPattern: race?.status === RACE_STATUS.COMPLETE ? "checkerboard" : "none",
       matrixPresetKey,
       matrixPreset: this.profile.display.presets[matrixPresetKey]
@@ -317,7 +328,7 @@ export class DisplayScene {
       format: "wled-fpv-layout",
       protocol: 1,
       schemaId: profile.output.schemaId,
-      revision: 3,
+      revision: 4,
       canvas: { width, height, background: colorNumber(display.backgroundColor), fps: 30 },
       nodes
     };

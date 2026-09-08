@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DisplayScene, projectRaceSchedule } from "../web/display-scene.js";
-import { LocalProfileStorage, MemoryProfileStorage, RaceDayProfile } from "../web/race-day-profile.js";
+import { LocalProfileStorage, MemoryProfileStorage, RaceDayProfile, validateRaceDayProfile } from "../web/race-day-profile.js";
 import { RaceSourceRuntime, RecordedRaceSourceAdapter } from "../web/race-source-runtime.js";
 import { OutputSession } from "../web/output-session.js";
 
@@ -129,6 +129,16 @@ test("a race-day profile round-trips through its storage interface", () => {
   const restored = new RaceDayProfile({ storage }).get();
   assert.equal(restored.cycle.seconds, 7);
   assert.equal(restored.display.channelColors.R8, "#123456");
+});
+
+test("race-day profile preserves explicit source mode and infers Hub mode for older profiles", () => {
+  const direct = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  assert.equal(direct.source.mode, "live");
+  const older = structuredClone(direct);
+  delete older.source.mode;
+  older.source.hubUrl = "http://127.0.0.1:4175";
+  assert.equal(validateRaceDayProfile(older).source.mode, "hub");
+  assert.equal(validateRaceDayProfile({ ...older, source: { ...older.source, mode: "live" } }).source.mode, "live");
 });
 
 test("legacy DOM-shaped settings migrate once into the versioned profile", () => {

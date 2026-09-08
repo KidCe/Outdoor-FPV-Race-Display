@@ -29,6 +29,7 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
   format: RACE_DAY_PROFILE_FORMAT,
   version: RACE_DAY_PROFILE_VERSION,
   source: {
+    mode: "live",
     connectorUrl: "",
     hubUrl: "",
     eventUrl: "https://rotormaniacs.livefpv.com/",
@@ -103,6 +104,7 @@ export function migrateLegacyProfile(storage) {
     if (!display && !connector) return null;
     const migrated = clone(DEFAULT_RACE_DAY_PROFILE);
     if (connector) {
+      migrated.source.mode = connector.hubUrl ? "hub" : "live";
       migrated.source.connectorUrl = connector.connectorUrl || migrated.source.connectorUrl;
       migrated.source.eventUrl = connector.sourceUrl || migrated.source.eventUrl;
       migrated.source.enabled = Boolean(connector.autoRefresh);
@@ -142,6 +144,9 @@ export function validateRaceDayProfile(candidate) {
   profile.source.connectorUrl = String(profile.source.connectorUrl || "").trim();
   profile.source.hubUrl = String(profile.source.hubUrl || "").trim();
   profile.source.eventUrl = String(profile.source.eventUrl || "").trim();
+  profile.source.mode = Object.prototype.hasOwnProperty.call(candidate.source || {}, "mode")
+    ? (profile.source.mode === "hub" ? "hub" : "live")
+    : (profile.source.hubUrl ? "hub" : "live");
   profile.source.enabled = Boolean(profile.source.enabled);
   profile.source.reconcileSeconds = boundedNumber(profile.source.reconcileSeconds, 30, 10, 300);
   profile.output.enabled = Boolean(profile.output.enabled);

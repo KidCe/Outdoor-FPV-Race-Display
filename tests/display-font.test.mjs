@@ -75,6 +75,17 @@ test("5x7 display projection renders the supplied Turkish names as ASCII in prev
   assert.deepEqual(snapshot, sourceBeforeProjection);
 });
 
+test("matrix header keeps the compact round and heat identity", async () => {
+  const snapshot = await loadSnapshot();
+  snapshot.races[0].round = "Qualifier Round 2";
+  snapshot.races[0].phase = "Qualifier";
+  snapshot.races[0].heat = { number: 3, count: 3 };
+  const display = new DisplayScene(new RaceDayProfile({ storage: new MemoryProfileStorage() }).get());
+  const scene = display.project(snapshot, "current");
+  assert.equal(scene.matrixHeader, "Q2 H3/3");
+  assert.equal(display.getState(scene).find(value => value.key === "header-current").text, "Q2 H3/3");
+});
+
 test("5x7 normalization keeps uppercase and lowercase case while mapping Turkish glyphs", () => {
   assert.equal(normalize5x7Text("ıİğĞşŞçÇ"), "iIgGsScC");
   assert.equal(normalize5x7Text("küllüoğlu"), "kulluoglu");

@@ -23,7 +23,7 @@ const DEFAULTS = Object.freeze({
 const compact = value => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 const sourceStatus = value => {
   const normalized = String(value || "unknown").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return ({ ready: "staging", racing: "running", completed: "complete", not_yet_run: "not_run", canceled: "cancelled" })[normalized] || normalized;
+  return ({ ready: "staging", racing: "running", completed: "complete", not_yet_run: "not_run", canceled: "cancelled", uncertain: "unknown" })[normalized] || normalized;
 };
 const safeId = (value, fallback) => {
   const normalized = String(value || fallback).trim().replace(/[^A-Za-z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -41,10 +41,32 @@ const parseWarnings = warnings => (Array.isArray(warnings) ? warnings : []).filt
 
 const EXPLICIT_ACTIVE_STATUSES = new Set(["staging", "running"]);
 const TERMINAL_STATUSES = new Set(["complete", "cancelled"]);
+const NON_AUTHORITATIVE_STATUSES = new Set(["scheduled", "not_run", "unknown"]);
+const UNKNOWN_STATUS_WARNING = Object.freeze({
+  code: "race.status_unknown",
+  message: "The source did not provide an authoritative status for one or more heats.",
+  severity: "warning"
+});
+
+export function validateLiveFPVSourceUrl(value) {
+  let url;
+  try { url = new URL(String(value || "").trim()); } catch { throw new Error("LiveFPV URL must be a valid absolute URL."); }
+  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash || !/(?:^|\.)livefpv\.com$/i.test(url.hostname)) {
+    throw new Error("LiveFPV URL must use HTTP(S) and point to a LiveFPV organization.");
+  }
+  if ([...url.searchParams.keys()].some(key => /pass(word)?|secret|token|api[-_]?key|auth(entication)?|credential/i.test(key))) {
+    throw new Error("LiveFPV URL must not contain credentials.");
+  }
+  return url.href;
+}
 
 function selectCurrentIndex(races, requestedIndex) {
   const requestedRace = races[requestedIndex];
   if (EXPLICIT_ACTIVE_STATUSES.has(requestedRace?.status)) return requestedIndex;
+  // Keep an explicitly supplied source pointer when its status is unknown.
+  // Falling back to the latest completed heat makes a transient partial
+  // packet look like a real regression and can make the display oscillate.
+  if (requestedRace?.status === "unknown") return requestedIndex;
 
   const runningIndex = races.findIndex(race => race.status === "running");
   if (runningIndex >= 0) return runningIndex;
@@ -115,11 +137,14 @@ export function adaptConnectorSnapshot(input, { sourceUrl = DEFAULTS.sourceUrl, 
   const eventId = safeId(input.event.id, "livefpv-event");
   const eventSessionId = safeId(input.eventSessionId || `livefpv-${eventId}`, `livefpv-${eventId}`);
   const capturedAt = input.capturedAt || input.source?.capturedAt || deliveredAt;
-  const qualityState = ["fresh", "degraded", "stale"].includes(input.quality?.state)
+  const baseQualityState = ["fresh", "degraded", "stale"].includes(input.quality?.state)
     ? input.quality.state
     : Array.isArray(input.source?.warnings) && input.source.warnings.length ? "degraded" : "fresh";
+  const hasUnknownStatus = races.some(race => race.status === "unknown");
+  const qualityState = hasUnknownStatus && baseQualityState === "fresh" ? "degraded" : baseQualityState;
   const revision = String(input.snapshotId || input.source?.revision || `${races.length}-${currentRaceId || "none"}`).slice(0, 160);
   const warnings = parseWarnings(input.source?.warnings || input.quality?.warnings);
+  if (hasUnknownStatus && !warnings.some(warning => warning.code === UNKNOWN_STATUS_WARNING.code)) warnings.push(UNKNOWN_STATUS_WARNING);
   return {
     format: "org.fpv.race-event.snapshot",
     version: 1,
@@ -155,12 +180,48 @@ export function reconcileConnectorSnapshot(previous, candidate) {
   if (!previous || !candidate || previous.eventSessionId !== candidate.eventSessionId || previous.event?.id !== candidate.event?.id) return candidate;
   const previousIndex = previous.schedule?.currentIndex;
   const candidateIndex = candidate.schedule?.currentIndex;
-  if (!Number.isInteger(previousIndex) || !Number.isInteger(candidateIndex) || candidateIndex >= previousIndex) return candidate;
-
-  const previousStatus = previous.races?.[previousIndex]?.status;
-  const candidateStatus = candidate.races?.[candidateIndex]?.status;
   const previousRace = previous.races?.[previousIndex];
   const candidateRace = candidate.races?.[candidateIndex];
+
+  const shouldPreserveUnknown = previousRace && candidateRace?.status === "unknown" && previousRace.status !== "unknown";
+  const shouldPreserveActiveHeat = previousRace && candidateRace?.id === previousRace.id
+    && EXPLICIT_ACTIVE_STATUSES.has(previousRace.status)
+    && NON_AUTHORITATIVE_STATUSES.has(candidateRace.status);
+  if (shouldPreserveUnknown || shouldPreserveActiveHeat) {
+    const retainedIndex = candidate.races.findIndex(race => race.id === previous.schedule?.currentRaceId);
+    if (retainedIndex >= 0) {
+      const races = candidate.races.map((race, index) => index === retainedIndex
+        ? { ...structuredClone(race), status: previousRace.status }
+        : race);
+      const warnings = [...(candidate.quality?.warnings || [])];
+      const warning = shouldPreserveUnknown
+        ? { code: "race.status_unknown_preserved", message: "The source omitted the current heat status; the last trusted status is being retained.", severity: "warning" }
+        : { code: "race.status_non_authoritative_preserved", message: "A static source snapshot downgraded the active heat without an authoritative transition; the last trusted status is being retained.", severity: "warning" };
+      if (!warnings.some(item => item.code === warning.code)) warnings.push(warning);
+      const domains = Object.fromEntries(Object.entries(candidate.quality?.domains || {}).map(([key, domain]) => [
+        key,
+        key === "schedule" ? { ...domain, state: "degraded", reason: "unknown_status_preserved" } : domain
+      ]));
+      return {
+        ...candidate,
+        races,
+        schedule: buildSchedule(races, retainedIndex),
+        quality: { ...candidate.quality, state: candidate.quality?.state === "stale" ? "stale" : "degraded", warnings, domains }
+      };
+    }
+  }
+
+  if (!Number.isInteger(previousIndex) || !Number.isInteger(candidateIndex) || candidateIndex >= previousIndex) return candidate;
+
+  const previousStatus = previousRace?.status;
+  const candidateStatus = candidateRace?.status;
+  if (EXPLICIT_ACTIVE_STATUSES.has(previousStatus) && !EXPLICIT_ACTIVE_STATUSES.has(candidateStatus)) {
+    const retainedIndex = candidate.races.findIndex(race => race.id === previous.schedule?.currentRaceId);
+    if (retainedIndex >= 0) {
+      const races = candidate.races.map((race, index) => index === retainedIndex ? structuredClone(previousRace) : race);
+      return { ...candidate, races, schedule: buildSchedule(races, retainedIndex) };
+    }
+  }
   const laterRaces = (candidate.races?.slice(candidateIndex + 1) || []).filter(race => sameRaceGroup(race, candidateRace));
   const hasUnfinishedLaterRace = laterRaces.some(race => !TERMINAL_STATUSES.has(race?.status));
   if (!TERMINAL_STATUSES.has(previousStatus) || !sameRaceGroup(previousRace, candidateRace) || EXPLICIT_ACTIVE_STATUSES.has(candidateStatus) || hasUnfinishedLaterRace) return candidate;
@@ -185,8 +246,13 @@ async function readJson(fetchImpl, url, signal) {
 export class LiveTimeQueHubSource {
   constructor({ connectorUrl = DEFAULTS.connectorUrl, sourceUrl = DEFAULTS.sourceUrl, fetchImpl = globalThis.fetch } = {}) {
     this.connectorUrl = connectorUrl.replace(/\/$/, "");
-    this.sourceUrl = sourceUrl;
+    this.sourceUrl = validateLiveFPVSourceUrl(sourceUrl);
     this.fetch = fetchImpl;
+  }
+
+  configure(sourceUrl) {
+    this.sourceUrl = validateLiveFPVSourceUrl(sourceUrl);
+    return this.sourceUrl;
   }
 
   snapshotUrl() {
@@ -207,7 +273,7 @@ export class LiveTimeQueHubSource {
     return new SourceObservation({ snapshot: adaptConnectorSnapshot(input, { sourceUrl: this.sourceUrl }) });
   }
 
-  async stream(onSnapshot, signal) {
+  async stream(onSnapshot, signal, onStatus) {
     const response = await this.fetch(this.streamUrl(), { headers: { accept: "text/event-stream" }, cache: "no-store", signal });
     if (!response.ok) throw new Error(`LiveTime connector stream failed with HTTP ${response.status}.`);
     if (!response.body) throw new Error("LiveTime connector stream returned no body.");
@@ -222,6 +288,13 @@ export class LiveTimeQueHubSource {
       eventName = "message";
       data = [];
       if (currentEvent === "snapshot") await onSnapshot(adaptConnectorSnapshot(JSON.parse(payload), { sourceUrl: this.sourceUrl }));
+      if (currentEvent === "status") {
+        try {
+          const statusPayload = JSON.parse(payload);
+          const status = typeof statusPayload === "string" ? statusPayload : statusPayload?.status;
+          if (status) onStatus?.(status);
+        } catch { /* ignore malformed status events; the next event can still recover the stream */ }
+      }
     };
     for await (const chunk of response.body) {
       buffer += decoder.decode(chunk, { stream: true });
@@ -260,12 +333,34 @@ export class RaceHubRuntime {
     this.source = new LiveTimeQueHubSource({ connectorUrl, sourceUrl, fetchImpl });
     this.store = new TrustedStore({ persistencePath: statePath });
     this.hub = new RaceDataHub({ source: this.source, store: this.store });
-    this.server = createHubServer({ store: this.store, writePassword });
+    this.server = createHubServer({ store: this.store, writePassword, configureSource: sourceUrl => this.configureSource(sourceUrl) });
     this.refreshMs = Math.max(5000, refreshMs);
     this.pollTimer = null;
     this.streamAbort = null;
     this.streamTask = null;
     this.syncInProgress = false;
+    this.liveStreamHealthy = false;
+    this.liveStreamEverJoined = false;
+  }
+
+  async configureSource(sourceUrl) {
+    const normalized = validateLiveFPVSourceUrl(sourceUrl);
+    if (normalized === this.source.sourceUrl && this.store.snapshot) return { sourceUrl: normalized, snapshot: this.store.snapshot, status: this.store.getStatus() };
+    const previous = this.source.sourceUrl;
+    this.streamAbort?.abort();
+    this.streamAbort = null;
+    this.source.configure(normalized);
+    this.liveStreamHealthy = false;
+    this.liveStreamEverJoined = false;
+    try {
+      await this.sync();
+      this.startStream();
+      return { sourceUrl: normalized, snapshot: this.store.snapshot, status: this.store.getStatus() };
+    } catch (error) {
+      this.source.configure(previous);
+      this.startStream();
+      throw error;
+    }
   }
 
   async sync() {
@@ -281,6 +376,10 @@ export class RaceHubRuntime {
         this.hub.selectEvent({ eventSessionId: snapshot.eventSessionId, event: snapshot.event });
       }
       this.store.publish(reconcileConnectorSnapshot(this.store.trustedSnapshot || this.store.snapshot, snapshot));
+      if (!this.liveStreamHealthy) {
+        if (this.liveStreamEverJoined) this.store.markStale("source_reconnecting");
+        this.store.emitStatus({ connection: this.store.snapshot ? "reconnecting" : "error", quality: this.store.snapshot?.quality?.state ?? "unknown", message: "Waiting for the LiveTime stream." });
+      }
       return true;
     } catch (error) {
       this.store.markStale("source_reconnecting");
@@ -304,8 +403,13 @@ export class RaceHubRuntime {
         this.hub.selectEvent({ eventSessionId: snapshot.eventSessionId, event: snapshot.event });
       }
       this.store.publish(reconcileConnectorSnapshot(this.store.trustedSnapshot || this.store.snapshot, snapshot));
-    }, controller.signal).catch(error => {
-      if (!controller.signal.aborted) console.warn(`LiveTime status stream unavailable: ${error.message}`);
+    }, controller.signal, status => {
+      if (!controller.signal.aborted) this.handleLiveStreamStatus(status);
+    }).catch(error => {
+      if (!controller.signal.aborted) {
+        this.handleLiveStreamStatus("failed", error.message);
+        console.warn(`LiveTime status stream unavailable: ${error.message}`);
+      }
     }).finally(() => {
       if (this.streamAbort === controller && !controller.signal.aborted) {
         setTimeout(() => this.startStream(), 5000).unref?.();
@@ -313,9 +417,27 @@ export class RaceHubRuntime {
     });
   }
 
+  handleLiveStreamStatus(status, detail = "") {
+    const normalized = String(status || "unknown").trim().toLowerCase();
+    if (normalized === "joined") {
+      this.liveStreamHealthy = true;
+      this.liveStreamEverJoined = true;
+      this.store.emitStatus({ connection: "live", quality: this.store.snapshot?.quality?.state ?? "unknown", message: "" });
+      return;
+    }
+    this.liveStreamHealthy = false;
+    if (["failed", "disconnected", "reconnecting"].includes(normalized) && this.liveStreamEverJoined) this.store.markStale("source_reconnecting");
+    const message = detail || (["failed", "disconnected", "reconnecting"].includes(normalized) ? "LiveTime stream reconnecting." : "Connecting to the LiveTime stream.");
+    this.store.emitStatus({ connection: this.store.snapshot ? (["failed", "disconnected", "reconnecting"].includes(normalized) ? "reconnecting" : "joining") : "error", quality: this.store.snapshot?.quality?.state ?? "unknown", message });
+  }
+
   async start() {
     await mkdir(dirname(this.store.persistencePath), { recursive: true });
     await this.store.restore();
+    const restoredSourceUrl = this.store.snapshot?.event?.sourceUrl || this.store.trustedSnapshot?.event?.sourceUrl;
+    if (restoredSourceUrl) {
+      try { this.source.configure(restoredSourceUrl); } catch { /* keep the configured environment source */ }
+    }
     await new Promise(resolveListen => this.server.listen(this.port, this.host, resolveListen));
     console.log(`Race Data Hub listening on http://${this.host}:${this.port}`);
     console.log(`Hub admin: http://${this.host}:${this.port}/admin`);

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { DisplayScene } from "../web/display-scene.js";
 import { MatrixCycleController } from "../web/matrix-cycle.js";
+import { projectCycleScene } from "../web/race-day-app.js";
 import { MemoryProfileStorage, RaceDayProfile } from "../web/race-day-profile.js";
 
 const fixture = async name => JSON.parse(await readFile(new URL(`../contracts/race-event/v1/fixtures/${name}`, import.meta.url)));
@@ -78,6 +79,7 @@ test("missing or invalid Next Up keeps the completed current heat and active Liv
   });
   const current = { id: "heat-1", status: "complete" };
 
+  assert.deepEqual(controller.update({ enabled: false, current, next: { id: "heat-2", status: "scheduled" } }), { active: false, view: "current", phase: "idle", delay: 0 });
   assert.deepEqual(controller.update({ enabled: true, current, next: null }), { active: false, view: "current", phase: "idle", delay: 0 });
   assert.deepEqual(controller.update({ enabled: true, current, next: { id: "heat-2", status: "complete" } }), { active: false, view: "current", phase: "idle", delay: 0 });
 
@@ -175,9 +177,84 @@ test("checkerboard preview draws the same completion tiles exposed by the WLED p
   display.render({ getContext: () => context }, scene, { zoom: 1 });
 
   const completionNodes = display.getSchema().nodes.filter(node => node.bind === "complete-marker");
-  const previewTiles = calls.filter(call => call[0] === "fillRect" && call[3] === 3 && call[4] === 2);
-  assert.equal(completionNodes.length, 6);
+  const previewTiles = calls.filter(call => call[0] === "fillRect" && call[4] === 2 && call[3] === 8);
+  assert.equal(completionNodes.length, 8);
   assert.equal(previewTiles.length, completionNodes.length);
+  assert.deepEqual(previewTiles.map(([, x, y, w, h]) => ({ x, y, w, h })), completionNodes.map(({ x, y, w, h }) => ({ x, y, w, h })));
   assert.equal(display.getState(scene).find(value => value.key === "complete-marker")?.visible, true);
   assert.equal(display.getState(scene).some(value => /DONE/i.test(value.text || "")), false);
+});
+
+test("a stale phase callback cannot replace a newer cycle generation", () => {
+  const callbacks = [];
+  const controller = new MatrixCycleController({
+    setTimeoutImpl: (callback, delay) => { callbacks.push({ callback, delay }); return callbacks.length; },
+    clearTimeoutImpl: () => {}
+  });
+
+  controller.update({ enabled: true, current: { id: "heat-1", status: "complete" }, next: { id: "heat-2", status: "scheduled" } });
+  const staleCallback = callbacks[0].callback;
+  controller.update({ enabled: true, current: { id: "heat-1", status: "complete" }, next: { id: "heat-3", status: "scheduled" } });
+  staleCallback();
+
+  assert.deepEqual(controller.getState(), { active: true, view: "current", phase: "complete", delay: 5000 });
+});
+
+test("completed-frame checkerboard spans the full header perimeter within the schema budget", async () => {
+  const snapshot = completedMainSnapshot(await fixture("snapshot-fresh.json"));
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  const completionNodes = display.getSchema().nodes.filter(node => node.bind === "complete-marker");
+
+  assert.equal(completionNodes.length, 8);
+  assert.deepEqual(completionNodes.map(({ x, y, w, h }) => ({ x, y, w, h })), [
+    { x: 2, y: 1, w: 8, h: 2 },
+    { x: 22, y: 1, w: 8, h: 2 },
+    { x: 42, y: 1, w: 8, h: 2 },
+    { x: 62, y: 1, w: 8, h: 2 },
+    { x: 12, y: 11, w: 8, h: 2 },
+    { x: 32, y: 11, w: 8, h: 2 },
+    { x: 52, y: 11, w: 8, h: 2 },
+    { x: 72, y: 11, w: 8, h: 2 }
+  ]);
+  assert.ok(display.getSchema().nodes.length <= 40);
+  assert.equal(display.project(snapshot, "current").completionPattern, "checkerboard");
+});
+
+test("automatic cycle projects Current Complete and Next Up without changing semantic queue cards", async () => {
+  const snapshot = completedMainSnapshot(await fixture("snapshot-fresh.json"));
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+  let timer;
+  const controller = new MatrixCycleController({
+    setTimeoutImpl: (callback, delay) => { timer = { callback, delay }; return 1; },
+    clearTimeoutImpl: () => {}
+  });
+  const current = snapshot.races.find(race => race.id === snapshot.schedule.currentRaceId);
+  const next = snapshot.races.find(race => race.id === snapshot.schedule.nextRaceIds[0]);
+  const semanticQueue = display.project(snapshot, "current").schedule.filter(Boolean).map(race => ({ id: race.id, heat: race.heat, status: race.status }));
+
+  controller.update({ enabled: true, current, next, completeSeconds: 5, nextUpSeconds: 5 });
+  const completeScene = projectCycleScene(display, snapshot, "next", controller.getState());
+  assert.equal(timer.delay, 5000);
+  assert.equal(completeScene.race.id, current.id);
+  assert.equal(completeScene.completionPattern, "checkerboard");
+  assert.equal(completeScene.matrixPresetKey, "current");
+  assert.deepEqual(display.getState(completeScene).filter(value => value.visible).map(value => value.key).sort(), ["complete-marker", "group-current", "header-current"]);
+  assert.deepEqual(completeScene.schedule.filter(Boolean).map(race => ({ id: race.id, heat: race.heat, status: race.status })), semanticQueue);
+
+  timer.callback();
+  const nextUpScene = projectCycleScene(display, snapshot, "next", controller.getState());
+  assert.equal(timer.delay, 5000);
+  assert.equal(nextUpScene.race.id, next.id);
+  assert.equal(nextUpScene.view, "next-up");
+  assert.equal(nextUpScene.completionPattern, "none");
+  assert.equal(nextUpScene.matrixPresetKey, "next");
+  assert.deepEqual(display.getState(nextUpScene).filter(value => value.visible).map(value => value.key).sort(), ["group-next", "header-next"]);
+  assert.deepEqual(nextUpScene.schedule.filter(Boolean).map(race => ({ id: race.id, heat: race.heat, status: race.status })), semanticQueue);
+
+  timer.callback();
+  const returnedScene = projectCycleScene(display, snapshot, "next", controller.getState());
+  assert.equal(returnedScene.race.id, current.id);
+  assert.equal(returnedScene.completionPattern, "checkerboard");
 });

@@ -24,7 +24,7 @@ A layout is identified by three fields:
 | --- | --- |
 | `hello`, `ping` | Detect protocol support. |
 | `use` | Load an installed schema by ID and hash. |
-| `state` | Replace or patch bound values. |
+| `state` | Stage a complete value set and commit it atomically, or replace/patch bound values for legacy peers. |
 | `activate` | Enable or disable the overlay. |
 | `schema.begin` | Start a chunked schema installation. |
 | `schema.node` | Append one validated scene node. |
@@ -35,7 +35,7 @@ The `activate` operation uses the boolean `on` field (`{"on":true}` or `{"on":fa
 
 The chunked installation path keeps every serial/WebSocket message small. The module settings page additionally accepts a complete exported JSON schema file and compiles it into a fixed-size binary scene in WLED's filesystem.
 
-Controllers should also split a complete live state into patches of no more than eight values. The first `state` command uses `replace: true` and carries brightness/background controls; following commands use `replace: false`. This keeps USB serial lines below WLED's receive-buffer limit while using the same operations over both transports.
+Controllers split a complete live state into chunks of no more than eight values. Every live publication uses one positive `tx` value: the first `state` command uses `replace: true`, intermediate commands use `replace: false`, and only the last command uses `commit: true`. The firmware keeps these chunks invisible until the commit arrives, then swaps the complete state in one render trigger. The first chunk carries brightness/background controls. The browser-side output session coalesces publications while a transfer is in progress, so a slow display receives the newest trusted state instead of a backlog of obsolete scenes. This keeps USB serial lines below WLED's receive-buffer limit and prevents partial frames or stale pending chunks from becoming visible.
 
 ## Layout model
 

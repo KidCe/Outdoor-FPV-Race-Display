@@ -13,5 +13,5 @@ test("display controls verifier runs in the ESM project", () => {
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /FPV display controls verified \(24 checks\)\./);
+  assert.match(result.stdout, /FPV display controls verified \(27 checks\)\./);
 });

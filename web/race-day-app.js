@@ -8,6 +8,13 @@ import { mapRaceStatus, raceStatusLabel } from "./race-status.js";
 
 const byId = id => document.getElementById(id);
 const VIEW_LABELS = { current: "Current Heat", staging: "Next Up", next: "After Next" };
+
+export function projectCycleScene(sceneModule, snapshot, selectedView, cycleState) {
+  if (!cycleState?.active) return sceneModule.project(snapshot, selectedView);
+  return cycleState.view === "next"
+    ? sceneModule.projectMatrix(snapshot, "next-up")
+    : sceneModule.project(snapshot, "current");
+}
 const PRESET_LABELS = { current: "Current Heat", staging: "Staging Heat", next: "Next Up" };
 const CHANNEL_ORDER = ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "F2", "F4", "L6", "L7"];
 
@@ -30,6 +37,17 @@ function download(name, type, contents) {
 
 function setDot(element, kind) { element.className = `dot ${kind || ""}`; }
 
+function isHttpUrl(value) {
+  try { return ["http:", "https:"].includes(new URL(String(value || "").trim()).protocol); } catch { return false; }
+}
+
+function isLiveFPVUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return isHttpUrl(url.href) && !url.username && !url.password && !url.hash && /(?:^|\.)livefpv\.com$/i.test(url.hostname);
+  } catch { return false; }
+}
+
 function textElement(tagName, className, value) {
   const element = document.createElement(tagName);
   if (className) element.className = className;
@@ -48,7 +66,7 @@ export class RaceDayAppHost {
     if (requestedHub) {
       try {
         const hubUrl = new URL(requestedHub);
-        if (["http:", "https:"].includes(hubUrl.protocol)) this.profile = this.profileStore.update({ source: { hubUrl: hubUrl.href.replace(/\/$/, ""), enabled: true } });
+        if (["http:", "https:"].includes(hubUrl.protocol)) this.profile = this.profileStore.update({ source: { mode: "hub", hubUrl: hubUrl.href.replace(/\/$/, ""), enabled: true } });
       } catch {}
     }
     this.sceneModule = new DisplayScene(this.profile);
@@ -79,8 +97,11 @@ export class RaceDayAppHost {
     this.renderAll();
     setInterval(() => this.renderStatus(), 1000);
     if (this.profile.source.enabled) await this.sourceRuntime.setEnabled(true);
-    if (this.profile.output.enabled) await this.outputSession.setEnabled(true);
+    // Set the desired live mode before the display handshake completes. The
+    // first trusted scene can then be installed and published automatically
+    // as soon as the display is ready after a page reload.
     this.outputSession.setLive(this.profile.output.live);
+    if (this.profile.output.enabled) await this.outputSession.setEnabled(true);
   }
 
   configureModules() {
@@ -138,7 +159,7 @@ export class RaceDayAppHost {
     if (!snapshot) {
       this.currentScene = null;
       this.renderWaitingPreview();
-      const sourceName = this.profile.source.hubUrl ? "Race Data Hub" : "LiveTime";
+      const sourceName = this.profile.source.mode === "hub" ? "Race Data Hub" : "LiveTime";
       byId("heatQueue").replaceChildren(textElement("p", "notice", `Enable the ${sourceName} source to load the current and upcoming heats.`));
       byId("pilotList").replaceChildren(textElement("p", "notice", "No pilot data loaded."));
       byId("eventName").textContent = `Waiting for a ${sourceName} event`;
@@ -162,8 +183,7 @@ export class RaceDayAppHost {
     }
     try {
       const cycleState = this.cycleController.getState();
-      const matrixView = cycleState.active ? cycleState.view : null;
-      this.currentScene = matrixView === "next" ? this.sceneModule.projectMatrix(snapshot, "next-up") : this.sceneModule.project(snapshot, this.selectedView);
+      this.currentScene = projectCycleScene(this.sceneModule, snapshot, this.selectedView, cycleState);
       if (!this.currentScene.race) {
         this.renderWaitingPreview();
         byId("viewLabel").textContent = VIEW_LABELS[this.selectedView];
@@ -264,7 +284,8 @@ export class RaceDayAppHost {
   renderStatus() {
     const source = this.sourceState;
     const output = this.outputState;
-    byId("sourceLabel").textContent = this.profile.source.hubUrl ? "Race Data Hub" : "LiveTime";
+    const sourceName = this.profile.source.mode === "hub" ? "Race Data Hub" : "LiveTime";
+    byId("sourceLabel").textContent = sourceName;
     const sourceKind = source.connection === "connected" ? "ok" : source.connection === "reconnecting" || source.connection === "degraded" || source.snapshot ? "warn" : source.connection === "error" ? "error" : "";
     setDot(byId("sourceDot"), sourceKind);
     byId("sourceChip").textContent = `${source.connection}${source.quality && source.quality !== "unknown" ? ` · ${source.quality}` : ""}`;
@@ -277,13 +298,17 @@ export class RaceDayAppHost {
     const ageMs = ageReference ? Date.now() - ageReference : NaN;
     byId("sourceAge").textContent = elapsed(ageMs);
     byId("transportLabel").textContent = this.profile.output.transport === "usb" ? "USB serial" : "Wireless WLED";
-    byId("schemaState").textContent = output.schema || "Not installed";
+    byId("schemaState").textContent = output.schema || (["connecting", "reconnecting"].includes(output.connection) ? "Checking…" : "Not installed");
     byId("lastDisplayUpdate").textContent = output.lastUpdateAt ? elapsed(Date.now() - output.lastUpdateAt) : "Never";
-    const sourceName = this.profile.source.hubUrl ? "Race Data Hub" : "LiveTime";
     byId("sessionMessage").textContent = source.error ? `${sourceName}: ${source.error} Last trusted data remains visible. ${output.message}` : output.message;
     byId("sessionMessage").className = `session-message${source.error || output.connection === "error" ? " notice error" : ""}`;
     byId("stopClear").disabled = output.connection !== "connected";
     byId("readFrame").disabled = output.connection !== "connected";
+    const sourceReady = source.connection === "connected" || source.connection === "reconnecting" || source.connection === "degraded";
+    byId("sourceControlStatus").textContent = !this.profile.source.enabled
+      ? "Source disabled. Enter a URL and click Accept URL & connect."
+      : `${sourceName} ${sourceReady ? "selected" : "connection"}: ${source.connection}.`;
+    byId("sourceControlStatus").className = `notice${source.connection === "error" ? " error" : source.connection === "connected" ? "" : " warn"}`;
     const stale = Number.isFinite(ageMs) && ageMs >= 120000;
     byId("app").classList.toggle("stale", stale);
     if (stale) byId("sourceAge").textContent += ageMs >= 600000 ? " · stale" : " · delayed";
@@ -325,6 +350,7 @@ export class RaceDayAppHost {
   fillControls() {
     const { source, output, cycle, display } = this.profile;
     byId("sourceEnabled").checked = source.enabled;
+    byId("sourceMode").value = source.mode;
     byId("eventUrl").value = source.eventUrl;
     byId("connectorUrl").value = source.connectorUrl || globalThis.location.origin;
     byId("hubUrl").value = source.hubUrl || "";
@@ -374,9 +400,33 @@ export class RaceDayAppHost {
       const preset = event.target.closest("[data-preset]")?.dataset.preset;
       if (preset) { this.selectedPreset = preset; this.fillPresetControls(); }
     });
-    byId("sourceEnabled").addEventListener("change", async event => { this.updateProfile({ source: { enabled: event.target.checked } }); await this.sourceRuntime.setEnabled(event.target.checked); });
+    byId("sourceEnabled").addEventListener("change", async event => { await this.sourceRuntime.setEnabled(event.target.checked); this.updateProfile({ source: { enabled: event.target.checked } }); });
+    byId("sourceMode").addEventListener("change", async event => { await this.sourceRuntime.setEnabled(false); this.updateProfile({ source: { mode: event.target.value, enabled: false } }); });
+    byId("sourceConnect").addEventListener("click", async () => {
+      const mode = byId("sourceMode").value;
+      const eventUrl = byId("eventUrl").value.trim();
+      const hubUrl = byId("hubUrl").value.trim();
+      if (mode === "hub" && !isHttpUrl(hubUrl)) { byId("sourceControlStatus").textContent = "Enter a complete HTTP(S) Race Data Hub URL first."; byId("sourceControlStatus").className = "notice error"; return; }
+      if (mode === "live" && !isLiveFPVUrl(eventUrl)) { byId("sourceControlStatus").textContent = "Enter a complete LiveFPV organization URL first."; byId("sourceControlStatus").className = "notice error"; return; }
+      await this.sourceRuntime.setEnabled(false);
+      this.updateProfile({ source: { mode, eventUrl, hubUrl, enabled: true } });
+      await this.sourceRuntime.setEnabled(true);
+      this.renderStatus();
+    });
+    byId("sourceDisconnect").addEventListener("click", async () => { await this.sourceRuntime.setEnabled(false); this.updateProfile({ source: { enabled: false } }); });
     byId("clearTrustedData").addEventListener("click", () => this.sourceRuntime.clearTrustedSnapshot());
-    byId("outputEnabled").addEventListener("change", async event => { this.updateProfile({ output: { enabled: event.target.checked } }); await this.outputSession.setEnabled(event.target.checked, { interactive: true }); });
+    byId("outputEnabled").addEventListener("change", async event => {
+      const enabled = event.target.checked;
+      if (!enabled) {
+        await this.outputSession.setEnabled(false);
+        this.updateProfile({ output: { enabled: false } });
+        return;
+      }
+      this.updateProfile({ output: { enabled: true } });
+      await this.outputSession.setEnabled(true, { interactive: true });
+    });
+    byId("outputConnect").addEventListener("click", async () => { try { this.updateProfile({ output: { enabled: true } }); if (this.outputSession.enabled) await this.outputSession.reconnect(); else await this.outputSession.setEnabled(true, { interactive: true }); } catch (error) { byId("sessionMessage").textContent = `Display connection failed: ${error.message}`; } });
+    byId("outputDisconnect").addEventListener("click", async () => { await this.outputSession.setEnabled(false); this.updateProfile({ output: { enabled: false } }); });
     byId("liveOutput").addEventListener("change", event => { this.updateProfile({ output: { live: event.target.checked } }); this.outputSession.setLive(event.target.checked); });
     for (const [id, key, number] of [["eventUrl", "eventUrl"], ["connectorUrl", "connectorUrl"], ["hubUrl", "hubUrl"], ["reconcileSeconds", "reconcileSeconds", true]]) byId(id).addEventListener("change", event => this.updateProfile({ source: { [key]: number ? Number(event.target.value) : event.target.value } }));
     for (const [id, key, number] of [["transport", "transport"], ["wledUrl", "wledUrl"], ["serialBaud", "serialBaud", true], ["schemaId", "schemaId"], ["brightness", "brightness", true], ["backgroundEffect", "backgroundEffect", true]]) byId(id).addEventListener("input", event => this.updateProfile({ output: { [key]: number ? Number(event.target.value) : event.target.value } }));
@@ -385,7 +435,7 @@ export class RaceDayAppHost {
     for (const [id, key, number] of [["headerStyle", "headerStyle"], ["headerFrame", "headerFrame"], ["headerTextColor", "headerTextColor"], ["headerFrameColor", "headerFrameColor"], ["lineThickness", "lineThickness", true], ["headerFont", "font"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { presets: { [this.selectedPreset]: { [key]: number ? Number(event.target.value) : event.target.value } } } }));
     for (const [id, key] of [["headerGap", "headerGap"], ["rowGap", "rowGap"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { [key]: Number(event.target.value) } }));
     byId("channelColorMap").addEventListener("input", event => { const channel = event.target.dataset.channel; if (channel) this.updateProfile({ display: { channelColors: { [channel]: event.target.value } } }); });
-    byId("installSchema").addEventListener("click", async () => { try { await this.outputSession.installSchema(this.sceneModule.getSchema()); } catch (error) { byId("sessionMessage").textContent = error.message; } });
+    byId("installSchema").addEventListener("click", async () => { try { const schema = this.sceneModule.getSchema(); await this.outputSession.installSchema(schema); if (this.currentScene) await this.outputSession.publish(schema, this.sceneModule.getState(this.currentScene)); } catch (error) { byId("sessionMessage").textContent = error.message; } });
     byId("exportSchema").addEventListener("click", () => { const schema = this.sceneModule.getSchema(); download(`${schema.schemaId}-${schema.schemaHash}.json`, "application/json", `${JSON.stringify(schema, null, 2)}\n`); });
     byId("exportProfile").addEventListener("click", () => download("fpv-race-day-profile.json", "application/json", this.profileStore.exportJson()));
     byId("importProfile").addEventListener("change", async event => { const file = event.target.files?.[0]; if (!file) return; try { this.profile = this.profileStore.importJson(await file.text()); await this.applyWholeProfile(); } catch (error) { byId("sessionMessage").textContent = `Profile import failed: ${error.message}`; } finally { event.target.value = ""; } });
@@ -430,4 +480,4 @@ export class RaceDayAppHost {
 }
 
 const app = new RaceDayAppHost();
-void app.start();
+if (typeof document !== "undefined") void app.start();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptConnectorSnapshot, LiveTimeQueHubSource, reconcileConnectorSnapshot } from "../hub/local-server.mjs";
+import { adaptConnectorSnapshot, LiveTimeQueHubSource, RaceHubRuntime, reconcileConnectorSnapshot, validateLiveFPVSourceUrl } from "../hub/local-server.mjs";
 import { validateSnapshot } from "../hub/index.mjs";
 
 const sourceSnapshot = {
@@ -28,10 +28,65 @@ test("local Hub adapter converts the connector contract and preserves pilots/sta
   assert.deepEqual(validateSnapshot(snapshot), { valid: true, errors: [] });
 });
 
+test("local Hub maps an uncertain connector status to canonical unknown", () => {
+  const input = structuredClone(sourceSnapshot);
+  input.races[1].status = "uncertain";
+
+  const snapshot = adaptConnectorSnapshot(input);
+
+  assert.equal(snapshot.races[1].status, "unknown");
+  assert.deepEqual(validateSnapshot(snapshot), { valid: true, errors: [] });
+});
+
 test("Hub source builds the connector snapshot and stream endpoints from one configuration", () => {
   const source = new LiveTimeQueHubSource({ connectorUrl: "http://127.0.0.1:4174/", sourceUrl: "https://example.livefpv.com/" });
   assert.equal(source.snapshotUrl().href, "http://127.0.0.1:4174/api/connectors/race-event/v1/snapshot?sourceUrl=https%3A%2F%2Fexample.livefpv.com%2F&force=1");
   assert.equal(source.streamUrl().href, "http://127.0.0.1:4174/api/connectors/race-event/v1/stream?sourceUrl=https%3A%2F%2Fexample.livefpv.com%2F");
+});
+
+test("Hub source forwards connector connection status events", async () => {
+  const source = new LiveTimeQueHubSource({
+    connectorUrl: "http://127.0.0.1:4174/",
+    sourceUrl: "https://example.livefpv.com/",
+    fetchImpl: async () => ({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("event: status\ndata: {\"status\":\"reconnecting\"}\n\nevent: snapshot\ndata: "));
+          controller.enqueue(new TextEncoder().encode(`${JSON.stringify(sourceSnapshot)}\n\n`));
+          controller.close();
+        }
+      })
+    })
+  });
+  const statuses = [];
+  const snapshots = [];
+  await source.stream(snapshot => snapshots.push(snapshot), new AbortController().signal, status => statuses.push(status));
+  assert.deepEqual(statuses, ["reconnecting"]);
+  assert.equal(snapshots[0].schedule.currentIndex, 1);
+});
+
+test("Hub runtime marks the trusted heat stale while the LiveTime stream reconnects", () => {
+  const runtime = new RaceHubRuntime({ statePath: null, port: 0, sourceUrl: "https://example.livefpv.com/" });
+  const snapshot = adaptConnectorSnapshot(sourceSnapshot);
+  runtime.hub.selectEvent({ eventSessionId: snapshot.eventSessionId, event: snapshot.event });
+  runtime.store.publish(snapshot);
+  runtime.liveStreamEverJoined = true;
+
+  runtime.handleLiveStreamStatus("disconnected");
+
+  assert.equal(runtime.store.getStatus().connection, "reconnecting");
+  assert.equal(runtime.store.getStatus().quality, "stale");
+  assert.equal(runtime.store.getStatus().raceStatus, "staging");
+  assert.equal(runtime.store.snapshot.quality.state, "stale");
+  assert.equal(runtime.store.snapshot.schedule.currentRaceId, "race-2");
+});
+
+test("Hub source URL acceptance normalizes LiveFPV URLs and rejects unsafe targets", () => {
+  assert.equal(validateLiveFPVSourceUrl("https://example.livefpv.com/live/scoring/"), "https://example.livefpv.com/live/scoring/");
+  assert.throws(() => validateLiveFPVSourceUrl("https://example.com/"), /LiveFPV organization/);
+  assert.throws(() => validateLiveFPVSourceUrl("https://user:password@example.livefpv.com/"), /LiveFPV organization/);
+  assert.throws(() => validateLiveFPVSourceUrl("https://example.livefpv.com/?token=secret"), /must not contain credentials/);
 });
 
 test("Hub retains the completed frontier when the source points back to an older completed heat", () => {
@@ -95,4 +150,62 @@ test("Hub keeps an explicitly active rerun selected even when an older frontier 
 
   assert.equal(snapshot.schedule.currentRaceId, "q9-h9-rerun");
   assert.equal(snapshot.races[snapshot.schedule.currentIndex].status, "staging");
+});
+
+test("Hub does not regress an explicitly active live heat during an older static poll", () => {
+  const makeInput = (currentIndex, currentStatus) => {
+    const input = structuredClone(sourceSnapshot);
+    input.snapshotId = `event-1:revision-${currentIndex}-${currentStatus}`;
+    input.capturedAt = `2026-09-06T10:00:${String(currentIndex).padStart(2, "0")}.000Z`;
+    input.races = Array.from({ length: 3 }, (_, index) => ({
+      id: `race-${index + 1}`,
+      order: index,
+      label: `FPV (Heat ${index + 1}/3)`,
+      phase: "Qualifier",
+      round: "Round 1",
+      status: index === currentIndex ? currentStatus : index < currentIndex ? "complete" : "not-run",
+      links: {},
+      pilots: []
+    }));
+    input.schedule = { currentRaceId: `race-${currentIndex + 1}`, currentIndex, nextRaceIds: [], afterNextRaceIds: [] };
+    return input;
+  };
+  const previous = adaptConnectorSnapshot(makeInput(1, "staging"));
+  const olderPoll = adaptConnectorSnapshot(makeInput(0, "not_run"));
+  const retained = reconcileConnectorSnapshot(previous, olderPoll);
+  assert.equal(retained.schedule.currentIndex, 1);
+  assert.equal(retained.races[retained.schedule.currentIndex].status, "staging");
+});
+
+test("Hub retains the trusted current status when a newer connector snapshot reports unknown", () => {
+  const previous = adaptConnectorSnapshot(sourceSnapshot);
+  const candidateInput = structuredClone(sourceSnapshot);
+  candidateInput.snapshotId = "event-1:revision-unknown";
+  candidateInput.capturedAt = "2026-09-06T10:00:01.000Z";
+  candidateInput.races[1].status = "uncertain";
+  const candidate = adaptConnectorSnapshot(candidateInput);
+
+  const retained = reconcileConnectorSnapshot(previous, candidate);
+
+  assert.equal(retained.schedule.currentRaceId, "race-2");
+  assert.equal(retained.races[retained.schedule.currentIndex].status, "staging");
+  assert.equal(retained.quality.state, "degraded");
+  assert.ok(retained.quality.warnings.some(warning => warning.code === "race.status_unknown_preserved"));
+});
+
+test("Hub retains an active heat when a static snapshot downgrades that same heat to not-run", () => {
+  const previous = adaptConnectorSnapshot(sourceSnapshot);
+  const candidateInput = structuredClone(sourceSnapshot);
+  candidateInput.snapshotId = "event-1:revision-static-poll";
+  candidateInput.capturedAt = "2026-09-06T10:00:02.000Z";
+  candidateInput.races[0].status = "not-run";
+  candidateInput.races[1].status = "not-run";
+  const candidate = adaptConnectorSnapshot(candidateInput);
+
+  const retained = reconcileConnectorSnapshot(previous, candidate);
+
+  assert.equal(retained.schedule.currentRaceId, "race-2");
+  assert.equal(retained.races[retained.schedule.currentIndex].status, "staging");
+  assert.equal(retained.quality.state, "degraded");
+  assert.ok(retained.quality.warnings.some(warning => warning.code === "race.status_non_authoritative_preserved"));
 });
