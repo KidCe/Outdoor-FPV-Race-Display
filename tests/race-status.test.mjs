@@ -231,7 +231,27 @@ test("cached live status survives an older HTTP bootstrap during restart", async
   runtime.stop();
 });
 
-test("explicitly staged successor outranks a completed current pointer", async () => {
+test("LiveFPV keeps a completed selected heat current while a queued successor is staged", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const candidate = structuredClone(snapshot);
+  candidate.snapshotId = "completed-live-current-with-queued-successor";
+  candidate.capturedAt = "2026-09-08T10:00:00.000Z";
+  candidate.races[0].status = "complete";
+  candidate.races[0].timing = { ...candidate.races[0].timing, state: "complete", capturedAt: candidate.capturedAt, stoppedAt: candidate.capturedAt };
+  candidate.races[1].status = "staging";
+  candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
+
+  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-08T10:00:01.000Z") });
+  runtime.accept(candidate, { origin: "live" });
+
+  const state = runtime.getState();
+  assert.equal(state.snapshot.schedule.currentRaceId, "heat-18");
+  assert.equal(state.snapshot.races[state.snapshot.schedule.currentIndex].status, "complete");
+  assert.equal(state.snapshot.schedule.nextRaceIds[0], "heat-19");
+  assert.equal(state.raceStatus, "complete");
+});
+
+test("a queued staged successor never replaces the completed current pointer", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
   const candidate = structuredClone(snapshot);
   candidate.snapshotId = "staging-successor";
@@ -244,31 +264,34 @@ test("explicitly staged successor outranks a completed current pointer", async (
   const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:01:01.000Z") });
   runtime.accept(candidate, { origin: "live" });
 
-  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-19");
-  assert.equal(runtime.getState().snapshot.races[runtime.getState().snapshot.schedule.currentIndex].status, "staging");
-  assert.equal(runtime.getState().raceStatus, "staging");
+  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
+  assert.equal(runtime.getState().snapshot.races[runtime.getState().snapshot.schedule.currentIndex].status, "complete");
+  assert.equal(runtime.getState().raceStatus, "complete");
 });
 
-test("explicitly running successor outranks a completed current pointer", async () => {
+test("an actual staging or running current heat stays selected ahead of queued data", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
-  const candidate = structuredClone(snapshot);
-  candidate.snapshotId = "running-successor";
-  candidate.capturedAt = "2026-09-06T10:01:00.000Z";
-  candidate.races[0].status = "complete";
-  candidate.races[0].timing = { ...candidate.races[0].timing, state: "complete", capturedAt: candidate.capturedAt, stoppedAt: candidate.capturedAt };
-  candidate.races[1].status = "running";
-  candidate.races[1].timing = { state: "running", capturedAt: candidate.capturedAt, startedAt: candidate.capturedAt, stoppedAt: null };
-  candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
+  for (const status of ["staging", "running"]) {
+    const candidate = structuredClone(snapshot);
+    candidate.snapshotId = `current-${status}`;
+    candidate.capturedAt = "2026-09-06T10:01:00.000Z";
+    candidate.races[0].status = status;
+    candidate.races[0].timing = status === "running"
+      ? { state: "running", capturedAt: candidate.capturedAt, startedAt: candidate.capturedAt, stoppedAt: null }
+      : { state: "staging", capturedAt: candidate.capturedAt, startedAt: null, stoppedAt: null };
+    candidate.races[1].status = "running";
+    candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
 
-  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:01:01.000Z") });
-  runtime.accept(candidate, { origin: "live" });
+    const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:01:01.000Z") });
+    runtime.accept(candidate, { origin: "live" });
 
-  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-19");
-  assert.equal(runtime.getState().snapshot.races[runtime.getState().snapshot.schedule.currentIndex].status, "running");
-  assert.equal(runtime.getState().raceStatus, "running");
+    assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
+    assert.equal(runtime.getState().snapshot.races[runtime.getState().snapshot.schedule.currentIndex].status, status);
+    assert.equal(runtime.getState().raceStatus, status);
+  }
 });
 
-test("completed heat yields to a safe same-round successor after the DONE grace window", async () => {
+test("a completed heat stays current after the old DONE grace window", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
   const candidate = structuredClone(snapshot);
   candidate.snapshotId = "scheduled-successor";
@@ -279,13 +302,10 @@ test("completed heat yields to a safe same-round successor after the DONE grace 
   candidate.races[1].round = candidate.races[0].round;
   candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
 
-  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:00:14.999Z") });
+  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:00:15.001Z") });
   runtime.accept(candidate, { origin: "live" });
   assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
-
-  runtime.now = () => Date.parse("2026-09-06T10:00:15.001Z");
-  runtime.accept(candidate, { origin: "live" });
-  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-19");
+  assert.equal(runtime.getState().raceStatus, "complete");
 });
 
 test("completed heat remains DONE after the grace window when continuation is uncertain", async () => {
@@ -366,7 +386,7 @@ test("an unrelated active race cannot replace the explicit current queue", async
   assert.equal(runtime.getState().raceStatus, "complete");
 });
 
-test("DONE advances after 15 seconds without another source update", async () => {
+test("completed heat does not advance without authoritative source selection", async () => {
   const snapshot = await fixture("snapshot-fresh.json");
   const candidate = structuredClone(snapshot);
   candidate.snapshotId = "done-timer";
@@ -377,29 +397,11 @@ test("DONE advances after 15 seconds without another source update", async () =>
   candidate.races[1].round = candidate.races[0].round;
   candidate.schedule = { currentRaceId: "heat-18", currentIndex: 0, nextRaceIds: ["heat-19"], afterNextRaceIds: [] };
 
-  let now = Date.parse("2026-09-06T10:00:01.000Z");
-  let pendingTimer = null;
-  const runtime = new RaceSourceRuntime({
-    storage: null,
-    now: () => now,
-    setTimeoutImpl: (callback, delay) => {
-      pendingTimer = { callback, delay };
-      return 1;
-    },
-    clearTimeoutImpl: () => {
-      pendingTimer = null;
-    }
-  });
+  const runtime = new RaceSourceRuntime({ storage: null, now: () => Date.parse("2026-09-06T10:00:16.000Z") });
   runtime.accept(candidate, { origin: "live" });
 
   assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-18");
-  assert.equal(pendingTimer?.delay, 14_000);
-
-  now = Date.parse("2026-09-06T10:00:15.000Z");
-  pendingTimer.callback();
-
-  assert.equal(runtime.getState().snapshot.schedule.currentRaceId, "heat-19");
-  assert.equal(runtime.getState().raceStatus, "scheduled");
+  assert.equal(runtime.getState().raceStatus, "complete");
 });
 
 test("status trust does not cross event sessions when event and heat IDs are reused", async () => {

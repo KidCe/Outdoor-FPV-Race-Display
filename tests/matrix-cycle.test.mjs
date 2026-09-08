@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { DisplayScene } from "../web/display-scene.js";
+import { DisplayScene, projectRaceSchedule } from "../web/display-scene.js";
 import { MatrixCycleController } from "../web/matrix-cycle.js";
 import { projectCycleScene } from "../web/race-day-app.js";
 import { MemoryProfileStorage, RaceDayProfile } from "../web/race-day-profile.js";
@@ -67,6 +67,28 @@ test("complete and Next Up rotate on independent five-second phases", () => {
   now = 10000;
   timers.get(2).callback();
   assert.deepEqual(controller.getState(), { active: true, view: "current", phase: "complete", delay: 5000 });
+});
+
+test("cycle changes only the rendered view and disabled cycle keeps Current and Next One semantic cards", async () => {
+  const snapshot = completedMainSnapshot(await fixture("snapshot-fresh.json"));
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const semanticQueue = projectRaceSchedule(snapshot, profile, { limit: 2 }).map(race => ({ id: race.id, status: race.status }));
+  let timer;
+  const controller = new MatrixCycleController({
+    setTimeoutImpl: (callback, delay) => { timer = { callback, delay }; return 1; },
+    clearTimeoutImpl: () => {}
+  });
+  const current = snapshot.races.find(race => race.id === snapshot.schedule.currentRaceId);
+  const next = snapshot.races.find(race => race.id === snapshot.schedule.nextRaceIds[0]);
+
+  controller.update({ enabled: true, current, next });
+  assert.deepEqual(controller.getState(), { active: true, view: "current", phase: "complete", delay: 5000 });
+  timer.callback();
+  assert.deepEqual(controller.getState(), { active: true, view: "next", phase: "next-up", delay: 5000 });
+  assert.deepEqual(projectRaceSchedule(snapshot, profile, { limit: 2 }).map(race => ({ id: race.id, status: race.status })), semanticQueue);
+
+  assert.deepEqual(controller.update({ enabled: false, current, next }), { active: false, view: "current", phase: "idle", delay: 0 });
+  assert.deepEqual(projectRaceSchedule(snapshot, profile, { limit: 2 }).map(race => ({ id: race.id, status: race.status })), semanticQueue);
 });
 
 test("missing or invalid Next Up keeps the completed current heat and active LiveNow interrupts", () => {
