@@ -383,7 +383,7 @@ function authorized(request, expected) { if (typeof expected !== 'string' || exp
 async function requestJson(request, maxBytes = 64 * 1024) { const chunks = []; let size = 0; for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw new Error('request body is too large'); chunks.push(chunk); } try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new Error('request body is not valid JSON'); } }
 async function asset(response, file, contentType) { try { response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' }); response.end(await readFile(file)); } catch { json(response, { error: 'not_found' }, 404); } }
 
-export function createHubServer({ store, status = () => store.getStatus(), writePassword = null, heartbeatMs = 15000, configureSource = null } = {}) {
+export function createHubServer({ store, status = () => store.getStatus(), writePassword = null, heartbeatMs = 15000, configureSource = null, enableTestSnapshotInjection = false } = {}) {
   if (!store) throw new Error('createHubServer requires a TrustedStore');
   const server = createServer((request, response) => { void handleRequest(request, response); });
   const timer = heartbeatMs > 0 ? setInterval(() => store.heartbeat(), heartbeatMs) : null; timer?.unref?.(); server.on('close', () => { if (timer) clearInterval(timer); });
@@ -407,6 +407,17 @@ export function createHubServer({ store, status = () => store.getStatus(), write
         return json(response, { sourceUrl: result.sourceUrl, status: result.status, snapshot: result.snapshot });
       }
       if (request.method === 'POST' && url.pathname === '/api/v1/admin/metadata') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const input = await requestJson(request); if (!isObject(input) || !validIdentifier(input.eventSessionId)) throw new Error('eventSessionId is required'); if (!isObject(input.event)) throw new Error('event is required'); const event = store.overrideEventMetadata({ eventSessionId: input.eventSessionId, event: input.event }); return json(response, { event, status: store.getStatus(), snapshot: store.snapshot }); }
+      if (request.method === 'POST' && url.pathname === '/api/v1/test/snapshot') {
+        if (!enableTestSnapshotInjection) return json(response, { error: 'not_found' }, 404);
+        if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401);
+        const snapshot = await requestJson(request);
+        const validation = validateSnapshot(snapshot);
+        if (!validation.valid) throw new Error(`test snapshot rejected: ${validation.errors.join(', ')}`);
+        if (!store.active) store.selectEvent({ eventSessionId: snapshot.eventSessionId, event: snapshot.event });
+        else if (store.eventSessionId !== snapshot.eventSessionId) throw new Error('event session mismatch');
+        store.publish(snapshot);
+        return json(response, { accepted: true, snapshot: store.snapshot, status: store.getStatus() });
+      }
       if (request.method === 'POST' && url.pathname === '/api/v1/admin/event') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const input = await requestJson(request); if (!isObject(input) || !validIdentifier(input.eventSessionId)) throw new Error('eventSessionId is required'); if (input.event !== undefined && input.event !== null && !isObject(input.event)) throw new Error('event must be an object'); store.selectEvent({ eventSessionId: input.eventSessionId, event: input.event ?? null }); return json(response, { activeEvent: input.eventSessionId, status: store.getStatus() }); }
       if (request.method === 'POST' && url.pathname === '/api/v1/admin/event/deactivate') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); await requestJson(request); store.deactivateEvent(); return json(response, { activeEvent: null, status: store.getStatus() }); }
       if (request.method === 'POST' && url.pathname === '/api/v1/announcements') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const announcement = store.createAnnouncement(await requestJson(request)); return json(response, announcement, 201); }

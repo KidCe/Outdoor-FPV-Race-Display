@@ -479,5 +479,11 @@ export class RaceDayAppHost {
   }
 }
 
-const app = new RaceDayAppHost();
-if (typeof document !== "undefined") void app.start();
+export function createRaceDayApp() {
+  return new RaceDayAppHost();
+}
+
+if (typeof document !== "undefined") {
+  const app = createRaceDayApp();
+  void app.start();
+}

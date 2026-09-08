@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node scripts/race-day-acceptance.mjs",
     "web": "node scripts/local-web-server.mjs",
     "hub": "node hub/local-server.mjs"
   }
