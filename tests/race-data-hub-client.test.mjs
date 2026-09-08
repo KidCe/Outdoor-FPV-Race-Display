@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RaceDataHubClient, projectHubSnapshot, validateHubEnvelope, validateHubSnapshot, renderHubAnnouncement } from "../web/race-data-hub-client.js";
-import { RaceSourceRuntime } from "../web/race-source-runtime.js";
+import { HttpRaceSourceAdapter, RaceSourceRuntime } from "../web/race-source-runtime.js";
 import fs from "node:fs/promises";
 
 const fixture = name => fs.readFile(`contracts/race-event/v1/fixtures/${name}`, "utf8").then(JSON.parse);
@@ -178,7 +178,10 @@ test("Hub stream reconnect preserves stale data until a fresh bootstrap succeeds
     hubUrl: "http://hub.test",
     storage: null,
     EventSourceImpl: FakeEventSource,
-    fetchImpl: async () => ({ ok: true, status: 200, json: async () => structuredClone(bootstrapCount++ === 0 ? first : second) })
+    fetchImpl: function nativeLikeFetch() {
+      assert.equal(this, globalThis);
+      return Promise.resolve({ ok: true, status: 200, json: async () => structuredClone(bootstrapCount++ === 0 ? first : second) });
+    }
   });
   try {
     assert.equal(await client.connect(), true);
@@ -198,6 +201,21 @@ test("Hub stream reconnect preserves stale data until a fresh bootstrap succeeds
   } finally {
     client.close();
   }
+});
+
+test("legacy HTTP source adapter preserves the native fetch receiver", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  let calls = 0;
+  function nativeLikeFetch(url) {
+    if (this !== globalThis) throw new TypeError("Illegal invocation");
+    calls += 1;
+    assert.equal(new URL(url).pathname, "/api/connectors/race-event/v1/snapshot");
+    return Promise.resolve({ ok: true, status: 200, json: async () => snapshot });
+  }
+  const adapter = new HttpRaceSourceAdapter({ fetchImpl: nativeLikeFetch });
+  const result = await adapter.snapshot({ connectorUrl: "http://connector.test", sourceUrl: "https://race.test/live" });
+  assert.equal(result.snapshotId, snapshot.snapshotId);
+  assert.equal(calls, 1);
 });
 
 test("RaceSourceRuntime routes Hub mode through the Hub client and keeps output-independent state", async () => {

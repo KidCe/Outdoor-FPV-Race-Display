@@ -27,7 +27,7 @@ function preserveNewerStatuses(snapshot, trustedStatuses, acceptedAt) {
 
 export class HttpRaceSourceAdapter {
   constructor({ fetchImpl = globalThis.fetch, EventSourceImpl = globalThis.EventSource } = {}) {
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = typeof fetchImpl === "function" ? fetchImpl.bind(globalThis) : fetchImpl;
     this.EventSourceImpl = EventSourceImpl;
   }
   snapshot(config, signal) {
