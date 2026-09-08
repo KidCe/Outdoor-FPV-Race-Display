@@ -44,13 +44,16 @@ test("FPV v1 capacity is a fixed firmware scene budget, not an 80x80 LED limit",
   assert.match(sceneHeader, /scene\.nodeCount >= MAX_NODES/);
 });
 
-test("current completion marker is a complete 80x80 checkerboard border", async () => {
+test("current completion marker is a complete checkerboard header motif", async () => {
   const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
   const schema = new DisplayScene(profile).getSchema();
   const completionNodes = schema.nodes.filter(node => node.bind === "complete-marker");
 
   assert.equal(completionNodes.length, 8);
   assert.ok(completionNodes.every(node => node.type === "rect" && node.filled === true));
-  assert.equal(hasCompleteCanvasBorder(completionNodes, schema.canvas.width, schema.canvas.height), true);
+  // The marker covers the two header bands, not the entire 80x80 canvas. The
+  // alternating 8x2 tiles make the completed state unambiguous without
+  // consuming the pilot area or exceeding the 40-node scene budget.
+  assert.equal(hasCompleteCanvasBorder(completionNodes, schema.canvas.width, schema.canvas.height), false);
 });
 
