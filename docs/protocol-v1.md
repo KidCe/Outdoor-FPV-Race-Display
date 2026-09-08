@@ -46,6 +46,14 @@ The FPV race schema installs Current Heat, Staged, Next Up, and Next +2 arrow gr
 
 Any node can optionally animate without controller traffic by declaring `motion` as `left`, `right`, `up`, or `down`. `motionDistance` is constrained to 0–4 pixels and defaults to 1; `motionPeriod` is constrained to 200–5000 ms and defaults to 900. The ESP32 applies a subtle triangular movement and renders it at the schema's configured frame rate. Omitting `motion` keeps the node static.
 
+## Capacity boundary and completion marker
+
+The current FPV usermod has a fixed v1 scene capacity of 40 nodes. This is a firmware memory and storage limit, not a physical limit on the 80×80 HUB75 panel: `Scene` owns a `Node nodes[40]` array, both schema-install paths reject node 41 with `too_many_nodes`, and persisted scenes require the compiled `sizeof(Scene)` payload. The current race schema uses 38 nodes: 32 stable header/body nodes plus six completion-marker rectangles, leaving only two v1 node slots.
+
+Those six rectangles are a partial completion motif, not a complete checkerboard border around the 80×80 canvas. The existing v1 primitives cannot express a filled, alternating, disconnected pattern compactly: rectangles consume one node each, and polylines only draw connected line segments with at most 12 points. Adding more rectangles would exhaust the current budget without producing a complete canvas border.
+
+A complete marker needs an MCU-supported compact primitive before the host can use it. The recommended future seam is a capability-gated protocol revision with a bounded pattern node, for example `type: "pattern"`, `pattern: "checkerboard-border"`, explicit `x`, `y`, `w`, `h`, `cell`, `color`, and the existing `bind`/`visible` controls. Do not send that shape as protocol v1: current firmware rejects an unknown node type, and increasing `MAX_NODES` changes `Scene` size and invalidates stored payloads. A firmware change must update the parser, renderer, storage version/payload validation, and capability response together; v1 controllers need a documented fallback for devices that do not advertise the new primitive.
+
 ## Displayed-frame readback
 
 Protocol v1 also supports a frozen, chunked RGB readback over USB serial and `/fpv/ws`. This reads the final WLED framebuffer or the mapped HUB75 output without allocating a second 80×80 buffer on the ESP32.

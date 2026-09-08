@@ -20,7 +20,7 @@ The schema contains the geometry for Current Heat, Staging Heat, and Next Up at 
 - no more than 24 bound values;
 - no race text, callsign, channel, status, or schedule position in the schema hash.
 
-The active race status is carried in the existing header value (`STAGING`, `RUNNING`, `COMPLETE`, or `UNKNOWN`) and the completed-current projection retains its compact heat header with a small checkerboard completion pattern. The pattern uses bound rect nodes, so the physical 80×80 output gains terminal-state visibility without adding a second status text row or exceeding the device limits.
+The active race status is carried in the existing header value (`STAGING`, `RUNNING`, `COMPLETE`, or `UNKNOWN`) and the completed-current projection retains its compact heat header with a six-tile completion motif. The current v1 motif is intentionally bounded to the existing 40-node firmware scene budget; it is not a complete checkerboard border around the 80×80 canvas. A complete pattern requires a future MCU-supported compact primitive and capability negotiation before it can be added to the host schema.
 
 Changing a structural preset option creates a new schema hash. `OutputSession` first tries the installed schema and automatically installs the current schema when it is missing or changed, then resumes the pending live state.
 
