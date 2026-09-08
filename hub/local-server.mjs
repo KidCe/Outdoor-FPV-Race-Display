@@ -60,18 +60,31 @@ export function validateLiveFPVSourceUrl(value) {
   return url.href;
 }
 
-function selectCurrentIndex(races, requestedIndex) {
-  const requestedRace = races[requestedIndex];
-  if (EXPLICIT_ACTIVE_STATUSES.has(requestedRace?.status)) return requestedIndex;
-  // Keep an explicitly supplied source pointer when its status is unknown.
-  // Falling back to the latest completed heat makes a transient partial
-  // packet look like a real regression and can make the display oscillate.
-  if (requestedRace?.status === "unknown") return requestedIndex;
+function explicitActiveSourceStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "staging" || normalized === "running" || normalized === "racing";
+}
 
-  const runningIndex = races.findIndex(race => race.status === "running");
+function sourceStatusIsNonCurrent(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "scheduled" || normalized === "not_run" || normalized === "not_yet_run";
+}
+
+function selectCurrentIndex(races, requestedIndex, { sourceRaces = [], hasExplicitCurrentId = false } = {}) {
+  const requestedRace = races[requestedIndex];
+  const requestedSourceRace = sourceRaces[requestedIndex];
+  if (explicitActiveSourceStatus(requestedSourceRace?.status)) return requestedIndex;
+
+  const runningIndex = races.findIndex((race, index) => race.status === "running" && explicitActiveSourceStatus(sourceRaces[index]?.status));
   if (runningIndex >= 0) return runningIndex;
-  const stagingIndex = races.findIndex(race => race.status === "staging");
+  const stagingIndex = races.findIndex((race, index) => race.status === "staging" && explicitActiveSourceStatus(sourceRaces[index]?.status));
   if (stagingIndex >= 0) return stagingIndex;
+
+  // Keep an explicitly supplied unknown pointer during a transient partial
+  // packet instead of moving the display to an older completed heat.
+  if (!hasExplicitCurrentId && requestedRace?.status === "unknown") return requestedIndex;
+
+  if (hasExplicitCurrentId && requestedRace && !sourceStatusIsNonCurrent(requestedSourceRace?.status)) return requestedIndex;
 
   const completedIndex = races.reduce((latest, race, index) => race.status === "complete" ? index : latest, -1);
   return completedIndex >= 0 ? completedIndex : requestedIndex;
@@ -126,13 +139,20 @@ export function adaptConnectorSnapshot(input, { sourceUrl = DEFAULTS.sourceUrl, 
   if (!input?.event?.id || !input?.event?.name) throw new Error("Connector snapshot is missing event metadata.");
   if (!Array.isArray(input.races) || input.races.length === 0) throw new Error("Connector snapshot contains no races.");
   const races = input.races.map(adaptRace);
-  const requestedIndex = Number.isInteger(input.schedule?.currentIndex)
+  const sourceCurrentId = input.schedule?.currentRaceId || input.currentRaceId;
+  const sourceCurrentIndex = sourceCurrentId
+    ? races.findIndex(race => race.id === safeId(sourceCurrentId, "missing-current"))
+    : -1;
+  const hasExplicitCurrentId = sourceCurrentIndex >= 0;
+  const requestedIndex = sourceCurrentIndex >= 0
+    ? sourceCurrentIndex
+    : Number.isInteger(input.schedule?.currentIndex)
     ? input.schedule.currentIndex
     : Number.isInteger(input.currentIndex)
       ? input.currentIndex
-      : Math.max(0, races.findIndex(race => race.status === "running" || race.status === "staging"));
+      : Math.max(0, input.races.findIndex(race => explicitActiveSourceStatus(race.status)));
   const boundedRequestedIndex = Math.min(Math.max(requestedIndex, 0), races.length - 1);
-  const currentIndex = selectCurrentIndex(races, boundedRequestedIndex);
+  const currentIndex = selectCurrentIndex(races, boundedRequestedIndex, { sourceRaces: input.races, hasExplicitCurrentId });
   const currentRaceId = races[currentIndex]?.id ?? null;
   const eventId = safeId(input.event.id, "livefpv-event");
   const eventSessionId = safeId(input.eventSessionId || `livefpv-${eventId}`, `livefpv-${eventId}`);

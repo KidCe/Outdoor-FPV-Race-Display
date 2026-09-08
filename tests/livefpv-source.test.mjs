@@ -70,6 +70,30 @@ test('Main Events heat-sheet order exposes the known next-up heats with source l
   assert.equal(snapshot.races.find(race => race.id === heats[1].id).pilots[0].video.channel, 'R2');
 });
 
+test('a complete LiveNow heat remains current while scheduled heats stay Next Up', () => {
+  const current = heat({ id: 'main-m1', phase: 'Main Events', round: 'Main Events', number: 1, count: 2, status: 'complete' });
+  const next = heat({ id: 'main-m2', phase: 'Main Events', round: 'Main Events', number: 2, count: 2, status: 'scheduled' });
+  const snapshot = buildLiveFPVSnapshot({
+    event,
+    eventSessionId: 'forest-finale-session',
+    mainEvents: [current, next],
+    liveNow: {
+      available: true,
+      eventName: event.name,
+      phase: 'Main Events',
+      round: 'Main Events',
+      heat: current.heat,
+      status: 'complete',
+      capturedAt: '2026-09-08T10:00:00.000Z',
+      sourceRevision: 'live-main-complete-1'
+    }
+  });
+
+  assert.equal(snapshot.schedule.currentRaceId, current.id);
+  assert.deepEqual(snapshot.schedule.nextRaceIds, [next.id]);
+  assert.equal(snapshot.races[snapshot.schedule.currentIndex].status, 'complete');
+});
+
 test('LiveNow scoring page parser produces the active cross-round anchor and ignores waiting pages', () => {
   const capturedAt = '2026-09-08T10:00:00.000Z';
   const active = parseLiveNowPage(`

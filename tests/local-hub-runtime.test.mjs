@@ -137,6 +137,26 @@ test("Hub keeps the last completed frontier when the source points at an unstart
   assert.deepEqual(snapshot.schedule.nextRaceIds, ["q10-h1", "q10-h2"]);
 });
 
+test("Hub preserves a completed source current when a future queued heat is only ready", () => {
+  const input = structuredClone(sourceSnapshot);
+  input.races = [
+    { id: "current", order: 0, label: "FPV (Heat 1/2)", phase: "Qualifier", round: "Round 1", status: "complete", links: {}, pilots: [] },
+    { id: "next", order: 1, label: "FPV (Heat 2/2)", phase: "Qualifier", round: "Round 1", status: "ready", links: {}, pilots: [] }
+  ];
+  input.schedule = { currentRaceId: "current", currentIndex: 0, nextRaceIds: ["next"], afterNextRaceIds: [] };
+
+  const snapshot = adaptConnectorSnapshot(input);
+
+  assert.equal(snapshot.schedule.currentRaceId, "current");
+  assert.equal(snapshot.schedule.currentIndex, 0);
+  assert.deepEqual(snapshot.schedule.nextRaceIds, ["next"]);
+
+  input.races[1].status = "staging";
+  const explicitSuccessor = adaptConnectorSnapshot(input);
+  assert.equal(explicitSuccessor.schedule.currentRaceId, "next");
+  assert.equal(explicitSuccessor.races[explicitSuccessor.schedule.currentIndex].status, "staging");
+});
+
 test("Hub keeps an explicitly active rerun selected even when an older frontier is complete", () => {
   const input = structuredClone(sourceSnapshot);
   input.races = [
