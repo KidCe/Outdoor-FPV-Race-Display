@@ -34,3 +34,117 @@ test("deactivation uses the firmware activate command field", async () => {
 
   await session.setEnabled(false);
 });
+
+test("unchanged published state is sent only once", async () => {
+  const operations = [];
+  const adapterFactory = (_transport, callbacks) => ({
+    connected: false,
+    async connect() { this.connected = true; },
+    ready() { return this.connected; },
+    async close() { this.connected = false; },
+    async send(text) {
+      const command = JSON.parse(text).fpv;
+      operations.push(command);
+      queueMicrotask(() => callbacks.onMessage(JSON.stringify({ fpv: { p: 1, seq: command.seq, ok: true } })));
+    }
+  });
+  const session = new OutputSession({ adapterFactory });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.setLive(true);
+  await session.setEnabled(true);
+  const schema = { schemaId: "race", schemaHash: "schema-v1" };
+  const values = [{ key: "header", text: "Q1", color: 0xffffff }];
+
+  await session.publish(schema, values);
+  await session.publish(schema, values.map(value => ({ color: value.color, text: value.text, key: value.key })));
+
+  assert.equal(operations.filter(command => command.op === "state").length, 1);
+  await session.setEnabled(false);
+});
+
+test("changed published state is transmitted", async () => {
+  const operations = [];
+  const adapterFactory = (_transport, callbacks) => ({
+    connected: false,
+    async connect() { this.connected = true; },
+    ready() { return this.connected; },
+    async close() { this.connected = false; },
+    async send(text) {
+      const command = JSON.parse(text).fpv;
+      operations.push(command);
+      queueMicrotask(() => callbacks.onMessage(JSON.stringify({ fpv: { p: 1, seq: command.seq, ok: true } })));
+    }
+  });
+  const session = new OutputSession({ adapterFactory });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.setLive(true);
+  await session.setEnabled(true);
+  const schema = { schemaId: "race", schemaHash: "schema-v1" };
+
+  await session.publish(schema, [{ key: "header", text: "Q1", color: 0xffffff }]);
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 51, backgroundEffect: 0 });
+  await session.publish(schema, [{ key: "header", text: "Q1", color: 0xffffff }]);
+  await session.publish(schema, [{ key: "header", text: "Q2", color: 0xffffff }]);
+
+  assert.equal(operations.filter(command => command.op === "state").length, 3);
+  await session.setEnabled(false);
+});
+
+test("reconnect replays unchanged state after the new connection is ready", async () => {
+  const operations = [];
+  let connectionCount = 0;
+  const adapterFactory = (_transport, callbacks) => ({
+    connected: false,
+    async connect() { this.connected = true; connectionCount += 1; },
+    ready() { return this.connected; },
+    async close() { this.connected = false; },
+    async send(text) {
+      const command = JSON.parse(text).fpv;
+      operations.push(command);
+      queueMicrotask(() => callbacks.onMessage(JSON.stringify({ fpv: { p: 1, seq: command.seq, ok: true } })));
+    }
+  });
+  const session = new OutputSession({ adapterFactory });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.setLive(true);
+  await session.setEnabled(true);
+  const schema = { schemaId: "race", schemaHash: "schema-v1" };
+  const values = [{ key: "header", text: "Q1", color: 0xffffff }];
+
+  await session.publish(schema, values);
+  await session.reconnect();
+
+  assert.equal(connectionCount, 2);
+  assert.equal(operations.filter(command => command.op === "state").length, 2);
+  await session.setEnabled(false);
+});
+
+test("a publication arriving during reconnect is not trapped behind a replay cycle", async () => {
+  const operations = [];
+  let connectionCount = 0;
+  const adapterFactory = (_transport, callbacks) => ({
+    connected: false,
+    async connect() { this.connected = true; connectionCount += 1; },
+    ready() { return this.connected; },
+    async close() { this.connected = false; },
+    async send(text) {
+      const command = JSON.parse(text).fpv;
+      operations.push(command);
+      queueMicrotask(() => callbacks.onMessage(JSON.stringify({ fpv: { p: 1, seq: command.seq, ok: true } })));
+    }
+  });
+  const session = new OutputSession({ adapterFactory });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.setLive(true);
+  await session.setEnabled(true);
+  const schema = { schemaId: "race", schemaHash: "schema-v1" };
+  const values = [{ key: "header", text: "Q1", color: 0xffffff }];
+
+  await session.publish(schema, values);
+  await session.closeAdapter();
+  await session.publish(schema, values);
+
+  assert.equal(connectionCount, 2);
+  assert.equal(operations.filter(command => command.op === "state").length, 2);
+  await session.setEnabled(false);
+});

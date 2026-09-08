@@ -2,6 +2,23 @@ const PROTOCOL_VERSION = 1;
 const COMMAND_TIMEOUT_MS = 3000;
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
+function stableSerialize(value) {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).filter(key => value[key] !== undefined).sort().map(key => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function publicationKey(schema, values, config) {
+  return stableSerialize({
+    schema: { schemaId: schema?.schemaId, schemaHash: schema?.schemaHash },
+    values,
+    brightness: config.brightness,
+    backgroundEffect: config.backgroundEffect
+  });
+}
+
 export function nextReconnectDelay(attempt) {
   return Math.min(10000, 1000 * (2 ** Math.max(0, Number(attempt) || 0)));
 }
@@ -152,6 +169,7 @@ export class OutputSession {
     this.publicationVersion = 0;
     this.lastPublication = null;
     this.operationTask = Promise.resolve();
+    this.lastSentPublicationKey = null;
     this.state = { connection: "disabled", controlling: false, message: "Output is disabled.", lastUpdateAt: null, schema: null };
   }
 
@@ -177,6 +195,7 @@ export class OutputSession {
   setLive(live) {
     this.live = Boolean(live);
     if (!this.live) {
+      this.lastSentPublicationKey = null;
       this.state.controlling = false;
       void this.deactivate().catch(() => {});
       this.setState({ controlling: false, message: this.enabled ? "Connected; live output is paused." : "Output is disabled." });
@@ -189,7 +208,7 @@ export class OutputSession {
     this.activeSchema = null;
     if (this.enabled) await this.ensureConnected();
   }
-  async ensureConnected({ interactive = false } = {}) {
+  async ensureConnected({ interactive = false, replay = true } = {}) {
     if (!this.enabled || this.adapter?.ready() || this.connecting) return;
     this.connecting = true;
     this.setState({ connection: this.reconnectAttempt ? "reconnecting" : "connecting", message: "Connecting to the display…" });
@@ -210,7 +229,7 @@ export class OutputSession {
       if (helloError) throw helloError;
       this.reconnectAttempt = 0;
       this.setState({ connection: "connected", message: `Connected via ${this.config.transport === "usb" ? "USB serial" : "WLED WebSocket"}.` });
-      if (this.lastPublication && this.live) await this.publish(this.lastPublication.schema, this.lastPublication.values);
+      if (replay && this.lastPublication && this.live) await this.publish(this.lastPublication.schema, this.lastPublication.values);
     } catch (error) {
       await this.closeAdapter();
       this.setState({ connection: "error", controlling: false, message: error.message });
@@ -230,6 +249,7 @@ export class OutputSession {
     const adapter = this.adapter;
     this.adapter = null;
     this.activeSchema = null;
+    this.lastSentPublicationKey = null;
     this.rejectWaiters(error?.message || "Display connection closed.");
     void adapter?.close().catch(() => {});
     this.scheduleReconnect();
@@ -237,6 +257,7 @@ export class OutputSession {
   async closeAdapter() {
     const adapter = this.adapter;
     this.adapter = null;
+    this.lastSentPublicationKey = null;
     this.rejectWaiters("Output session closed.");
     await adapter?.close();
   }
@@ -308,7 +329,7 @@ export class OutputSession {
   }
   async syncPublication(schema, values) {
     if (!this.enabled || !this.live) return;
-    if (!this.ready()) { await this.ensureConnected(); if (!this.ready()) return; }
+    if (!this.ready()) { await this.ensureConnected({ replay: false }); if (!this.ready()) return; }
     if (!this.activeSchema) {
       try {
         await this.sendCommand("use", { schema: schema.schemaId, hash: schema.schemaHash });
@@ -320,7 +341,11 @@ export class OutputSession {
     const schemaMatches = this.activeSchema?.schemaId === schema.schemaId && this.activeSchema?.schemaHash === schema.schemaHash;
     const plan = outputSyncPlan({ enabled: this.enabled, live: this.live, ready: this.ready(), schemaMatches });
     if (plan[0] === "install-schema") await this.installSchemaNow(schema);
+    const nextPublicationKey = publicationKey(schema, values, this.config);
+    if (nextPublicationKey === this.lastSentPublicationKey) return;
+    if (plan[0] === "install-schema") await this.installSchemaNow(schema);
     await this.sendState(schema, values);
+    this.lastSentPublicationKey = nextPublicationKey;
     this.setState({ connection: "connected", controlling: true, lastUpdateAt: Date.now(), schema: schema.schemaHash, message: `Live scene sent via ${this.config.transport === "usb" ? "USB" : "WLED WebSocket"}.` });
   }
   installSchema(schema) {
@@ -361,6 +386,7 @@ export class OutputSession {
     }
   }
   async deactivate() {
+    this.lastSentPublicationKey = null;
     if (this.ready()) await this.sendCommand("activate", { on: false }, 2000);
     this.setState({ controlling: false });
   }

@@ -35,7 +35,8 @@ The `activate` operation uses the boolean `on` field (`{"on":true}` or `{"on":fa
 
 The chunked installation path keeps every serial/WebSocket message small. The module settings page additionally accepts a complete exported JSON schema file and compiles it into a fixed-size binary scene in WLED's filesystem.
 
-Controllers split a complete live state into chunks of no more than eight values. Every live publication uses one positive `tx` value: the first `state` command uses `replace: true`, intermediate commands use `replace: false`, and only the last command uses `commit: true`. The firmware keeps these chunks invisible until the commit arrives, then swaps the complete state in one render trigger. The first chunk carries brightness/background controls. The browser-side output session coalesces publications while a transfer is in progress, so a slow display receives the newest trusted state instead of a backlog of obsolete scenes. This keeps USB serial lines below WLED's receive-buffer limit and prevents partial frames or stale pending chunks from becoming visible.
+Controllers should split a complete live state into chunks of no more than eight values. Every chunk belongs to one non-zero `tx` transaction. The first `state` command uses `replace: true` and carries brightness/background controls; following commands use `replace: false`. All chunks repeat the same `tx`; only the final chunk sets `commit: true`. The firmware stages these chunks and swaps them into the active output only on the commit, so an incomplete or failed update cannot expose a partial frame. A single-chunk update still uses `replace: true`, the transaction ID, and `commit: true`. A controller may suppress a publication only when the complete semantic state is unchanged and the same connection is still known to own the output; it must invalidate that comparison after reconnect, re-enable, or deactivation. This keeps USB serial lines below WLED's receive-buffer limit while using the same operations over both transports.
+The browser-side output session coalesces publications while a transfer is in progress, so a slow display receives the newest trusted state instead of a backlog of obsolete scenes. It may suppress a publication only when the complete semantic state is unchanged and the same connection is still known to own the output; it invalidates that comparison after reconnect, re-enable, or deactivation. This keeps USB serial lines below WLED's receive-buffer limit and prevents partial frames or stale pending chunks from becoming visible.
 
 ## Layout model
 
@@ -72,7 +73,9 @@ Example state update:
     "op": "state",
     "schema": "fpv-race-80x80-v1",
     "hash": "c52ed049",
+    "tx": 43,
     "replace": true,
+    "commit": true,
     "brightness": 50,
     "backgroundEffect": 0,
     "values": [
