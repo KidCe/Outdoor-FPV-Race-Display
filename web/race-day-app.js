@@ -364,8 +364,6 @@ export class RaceDayAppHost {
     byId("schemaId").value = output.schemaId;
     byId("brightness").value = output.brightness;
     byId("brightnessValue").textContent = `${output.brightness}%`;
-    byId("backgroundEffect").value = output.backgroundEffect;
-    byId("backgroundEffectValue").textContent = `${output.backgroundEffect}%`;
     byId("cycleEnabled").checked = cycle.enabled;
     byId("completeSeconds").value = cycle.completeSeconds;
     byId("nextUpSeconds").value = cycle.nextUpSeconds;
@@ -430,7 +428,7 @@ export class RaceDayAppHost {
     byId("outputDisconnect").addEventListener("click", async () => { await this.outputSession.setEnabled(false); this.updateProfile({ output: { enabled: false } }); });
     byId("liveOutput").addEventListener("change", event => { this.updateProfile({ output: { live: event.target.checked } }); this.outputSession.setLive(event.target.checked); });
     for (const [id, key, number] of [["eventUrl", "eventUrl"], ["connectorUrl", "connectorUrl"], ["hubUrl", "hubUrl"], ["reconcileSeconds", "reconcileSeconds", true]]) byId(id).addEventListener("change", event => this.updateProfile({ source: { [key]: number ? Number(event.target.value) : event.target.value } }));
-    for (const [id, key, number] of [["transport", "transport"], ["wledUrl", "wledUrl"], ["serialBaud", "serialBaud", true], ["schemaId", "schemaId"], ["brightness", "brightness", true], ["backgroundEffect", "backgroundEffect", true]]) byId(id).addEventListener("input", event => this.updateProfile({ output: { [key]: number ? Number(event.target.value) : event.target.value } }));
+    for (const [id, key, number] of [["transport", "transport"], ["wledUrl", "wledUrl"], ["serialBaud", "serialBaud", true], ["schemaId", "schemaId"], ["brightness", "brightness", true]]) byId(id).addEventListener("input", event => this.updateProfile({ output: { [key]: number ? Number(event.target.value) : event.target.value } }));
     byId("cycleEnabled").addEventListener("change", event => { this.updateProfile({ cycle: { enabled: event.target.checked } }); this.configureCycle(); });
     for (const id of ["completeSeconds", "nextUpSeconds"]) byId(id).addEventListener("change", event => { this.updateProfile({ cycle: { [id]: Number(event.target.value) } }); this.configureCycle(); });
     for (const [id, key, number] of [["headerStyle", "headerStyle"], ["headerFrame", "headerFrame"], ["headerTextColor", "headerTextColor"], ["headerFrameColor", "headerFrameColor"], ["lineThickness", "lineThickness", true], ["headerFont", "font"]]) byId(id).addEventListener("input", event => this.updateProfile({ display: { presets: { [this.selectedPreset]: { [key]: number ? Number(event.target.value) : event.target.value } } } }));

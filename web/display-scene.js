@@ -4,6 +4,8 @@ import { RACE_STATUS, mapRaceStatus, presentRaceStatus } from "./race-status.js"
 
 const VIEW_ORDER = ["current", "staging", "next"];
 const MAX_5X7_TEXT_CHARACTERS = 40;
+const FPV_RACE_BACKGROUND = 0;
+const FPV_RACE_BACKGROUND_COLOR = "#000000";
 const MATRIX_PRESET_BY_STATUS = Object.freeze({
   [RACE_STATUS.STAGING]: "staging",
   [RACE_STATUS.RUNNING]: "current",
@@ -126,6 +128,19 @@ function matrixPresetKeyFor(race, view) {
   return MATRIX_PRESET_BY_STATUS[race?.status] || (view === "staging" ? "staging" : "current");
 }
 
+function pilotsForDisplay(race) {
+  const pilots = [...(race.pilots || [])];
+  if (![RACE_STATUS.RUNNING, RACE_STATUS.COMPLETE].includes(mapRaceStatus(race.status))) return pilots;
+  return pilots
+    .map((pilot, sourceIndex) => ({ pilot, sourceIndex }))
+    .sort((left, right) => {
+      const leftPosition = Number.isInteger(left.pilot.timing?.position) ? left.pilot.timing.position : Number.POSITIVE_INFINITY;
+      const rightPosition = Number.isInteger(right.pilot.timing?.position) ? right.pilot.timing.position : Number.POSITIVE_INFINITY;
+      return leftPosition - rightPosition || left.sourceIndex - right.sourceIndex;
+    })
+    .map(({ pilot }) => pilot);
+}
+
 function projectRace(snapshot, profile, race, presetKey) {
   const status = mapRaceStatus(race.status);
   return {
@@ -138,7 +153,7 @@ function projectRace(snapshot, profile, race, presetKey) {
     status,
     statusLabel: presentRaceStatus(status),
     label: race.label || "",
-    pilots: (race.pilots || []).slice(0, 8).map(pilot => {
+    pilots: pilotsForDisplay(race).slice(0, 8).map(pilot => {
       const video = resolveVideo(snapshot.races, pilot);
       const channel = String(video.channel || "").toUpperCase();
       return {
@@ -146,6 +161,7 @@ function projectRace(snapshot, profile, race, presetKey) {
         callsign: pilot.callsign || "OPEN",
         channel,
         frequencyMHz: video.frequencyMHz,
+        timing: pilot.timing ? { ...pilot.timing } : undefined,
         color: profile.display.channelColors[channel] || "#ffffff"
       };
     })
@@ -329,7 +345,7 @@ export class DisplayScene {
       protocol: 1,
       schemaId: profile.output.schemaId,
       revision: 4,
-      canvas: { width, height, background: colorNumber(display.backgroundColor), fps: 30 },
+      canvas: { width, height, background: FPV_RACE_BACKGROUND, fps: 30 },
       nodes
     };
     return { ...base, schemaHash: fnv1a(JSON.stringify(base)) };
@@ -342,7 +358,7 @@ export class DisplayScene {
     canvas.height = height * zoom;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
-    context.fillStyle = this.profile.display.backgroundColor;
+    context.fillStyle = FPV_RACE_BACKGROUND_COLOR;
     context.fillRect(0, 0, canvas.width, canvas.height);
     if (!scene?.race) return { width, height, schemaHash: this.schema.schemaHash, nodes: this.schema.nodes.length };
     context.save();

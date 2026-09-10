@@ -53,7 +53,7 @@
 
     <details><summary>Display output settings</summary><div class="details-body"><div class="settings-grid">
       <label class="field">Transport<select id="transport"><option value="wireless">Wireless WLED</option><option value="usb">USB serial</option></select></label><label class="field">WLED URL<input id="wledUrl" type="url" placeholder="http://192.168.0.201/"></label><label class="field">USB baud rate<select id="serialBaud"><option>115200</option><option>57600</option></select></label><label class="field">Layout schema ID<input id="schemaId" maxlength="24"></label>
-      <label class="field">Display brightness<input id="brightness" type="range" min="0" max="100" step="1"><output id="brightnessValue"></output></label><label class="field">WLED background effect<input id="backgroundEffect" type="range" min="0" max="25" step="1"><output id="backgroundEffectValue"></output></label>
+      <label class="field">Display brightness<input id="brightness" type="range" min="0" max="100" step="1"><output id="brightnessValue"></output></label><p class="notice">FPV live output uses a fixed black background. WLED background effects are disabled while this display is active.</p>
     </div><div class="actions"><button id="installSchema" class="action" type="button">Install current schema</button><button id="exportSchema" class="action" type="button">Export WLED schema</button></div></div></details>
 
     <details><summary>Current, Staging and Next Up presets</summary><div class="details-body">

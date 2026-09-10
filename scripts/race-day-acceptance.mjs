@@ -10,7 +10,6 @@ import { createRaceDayApp } from "../web/race-day-app.js";
 const ROOT = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const FIXTURE_SERVER = join(ROOT, "scripts", "race-day-fixture-server.mjs");
 const EVENT_SESSION_ID = "acceptance-session-1";
-const PASSWORD = "acceptance-write-password";
 const EVENT = {
   id: "acceptance-event",
   name: "Deterministic Forest Race Replay",
@@ -352,7 +351,7 @@ function createControlDesk(hubUrl) {
 async function startFixture({ statePath, epoch }) {
   const child = spawn(process.execPath, [FIXTURE_SERVER], {
     cwd: ROOT,
-    env: { ...process.env, FPV_E2E_STATE_PATH: statePath, FPV_E2E_EPOCH: epoch, FPV_E2E_PASSWORD: PASSWORD, FPV_E2E_PORT: "0" },
+    env: { ...process.env, FPV_E2E_STATE_PATH: statePath, FPV_E2E_EPOCH: epoch, FPV_E2E_PORT: "0" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   let stderr = "";
@@ -394,7 +393,7 @@ async function requestJson(url, options, scenario, expectedStatus = 200) {
 async function inject(hubUrl, snapshot, scenario) {
   return requestJson(`${hubUrl}/api/v1/test/snapshot`, {
     method: "POST",
-    headers: { accept: "application/json", "content-type": "application/json", "x-event-write-password": PASSWORD },
+    headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify(snapshot)
   }, scenario);
 }
@@ -598,12 +597,12 @@ export async function runAcceptance({ quiet = false, liveTimeQueRoot = process.e
     });
 
     await runScenario("announcement delivery and clear", async () => {
-      const announcement = await requestJson(`${first.url}/api/v1/announcements`, { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "x-event-write-password": PASSWORD }, body: JSON.stringify({ title: "Channels changed", body: "MainPilot moved to L6.", importance: 3, createdByDeviceId: "acceptance-runner" }) }, "announcement create", 201);
+      const announcement = await requestJson(`${first.url}/api/v1/announcements`, { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ title: "Channels changed", body: "MainPilot moved to L6.", importance: 3, createdByDeviceId: "acceptance-runner" }) }, "announcement create", 201);
       await waitFor(() => client.getState().announcements.some(item => item.announcementId === announcement.announcementId), "announcement over SSE", "announcement create");
       const withAnnouncement = { ...client.getState().snapshot, activeAnnouncements: client.getState().announcements };
       await driveControlDesk(controlDesk, withAnnouncement);
       expectEqual(controlDesk.document.getElementById("hubAnnouncements").children.length, 1, "Control Desk announcement count", "announcement create");
-      const clear = await requestJson(`${first.url}/api/v1/announcements/${encodeURIComponent(announcement.announcementId)}/clear`, { method: "POST", headers: { accept: "application/json", "x-event-write-password": PASSWORD } }, "announcement clear");
+      const clear = await requestJson(`${first.url}/api/v1/announcements/${encodeURIComponent(announcement.announcementId)}/clear`, { method: "POST", headers: { accept: "application/json" } }, "announcement clear");
       expectEqual(clear.status, "cleared", "announcement clear response", "announcement clear");
       await waitFor(() => client.getState().announcements.length === 0, "announcement clear over SSE", "announcement clear");
       await driveControlDesk(controlDesk, { ...client.getState().snapshot, activeAnnouncements: [] });
@@ -625,9 +624,8 @@ export async function runAcceptance({ quiet = false, liveTimeQueRoot = process.e
       controlDesk.app.updateProfile({ cycle: { enabled: false } });
     });
 
-    await runScenario("schema and authorization diagnostics", async () => {
-      await requestJson(`${first.url}/api/v1/test/snapshot`, { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "x-event-write-password": "wrong-password" }, body: JSON.stringify(scenarios.recovered) }, "unauthorized injection", 401);
-      const invalid = await requestJson(`${first.url}/api/v1/test/snapshot`, { method: "POST", headers: { accept: "application/json", "content-type": "application/json", "x-event-write-password": PASSWORD }, body: JSON.stringify({ format: "invalid" }) }, "invalid injection", 400);
+    await runScenario("schema diagnostics", async () => {
+      const invalid = await requestJson(`${first.url}/api/v1/test/snapshot`, { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ format: "invalid" }) }, "invalid injection", 400);
       expectTrue(String(invalid.error).includes("test snapshot rejected"), "invalid snapshot rejection diagnostic", "invalid injection", "PROTOCOL_SCHEMA_ERROR");
     });
 

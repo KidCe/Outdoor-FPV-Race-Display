@@ -5,6 +5,8 @@ import { test } from 'node:test';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const busManager = fs.readFileSync(path.join(projectRoot, 'wled', 'wled00', 'bus_manager.cpp'), 'utf8');
+const busManagerHeader = fs.readFileSync(path.join(projectRoot, 'wled', 'wled00', 'bus_manager.h'), 'utf8');
+const fpvUsermod = fs.readFileSync(path.join(projectRoot, 'wled', 'usermods', 'fpv_race_display', 'fpv_race_display.cpp'), 'utf8');
 
 function functionBody(source, signature) {
   const start = source.indexOf(signature);
@@ -33,4 +35,38 @@ test('HUB75 uses the driver double buffer for complete-frame publication', () =>
   assert.match(show, /while\s*\(millis\(\)\s*-\s*_lastFrameFlipAt\s*<\s*_framePeriodMs\)\s*delay\(1\)/);
   assert.ok(show.indexOf('setBitArray(_ledsDirty') > flip, 'dirty state must be cleared after publication');
   assert.ok(show.indexOf('else if (_frameDirty)') > flip, 'direct-draw fallback must also publish a complete frame');
+});
+
+test('HUB75 marks a transition to black dirty so removed pixels are cleared', () => {
+  const setPixelColor = functionBody(busManager, 'void IRAM_ATTR BusHub75Matrix::setPixelColor(');
+
+  // A non-buffered HUB75 path still has to publish black when a previously lit
+  // pixel disappears. Tracking only non-black pixels leaves old text/arrows in
+  // the DMA frame and creates the observed visual overlap.
+  assert.doesNotMatch(setPixelColor, /if\s*\(\s*\(c\s*==\s*IS_BLACK\).*?\)\s*return/s);
+  assert.doesNotMatch(setPixelColor, /setBitInArray\(_ledsDirty, pix, c != IS_BLACK\)/);
+  assert.match(setPixelColor, /setBitInArray\(_ledsDirty, pix, true\)/);
+});
+
+test('HUB75 tracks each logical pixel change for both DMA buffers', () => {
+  const setPixelColor = functionBody(busManager, 'void IRAM_ATTR BusHub75Matrix::setPixelColor(');
+  const show = functionBody(busManager, 'void BusHub75Matrix::show(void)');
+
+  assert.match(busManagerHeader, /byte \*_ledsDirtySecondary = nullptr/);
+  assert.match(busManagerHeader, /uint8_t _dmaBufferIndex = 0/);
+  assert.match(setPixelColor, /setBitInArray\(_ledsDirty, pix, true\)/);
+  assert.match(setPixelColor, /setBitInArray\(_ledsDirtySecondary, pix, true\)/);
+  assert.match(show, /byte \*dirty = _dmaBufferIndex \? _ledsDirtySecondary : _ledsDirty/);
+  assert.match(show, /getBitFromArray\(dirty, pix\)/);
+  assert.match(show, /setBitArray\(dirty, _len, false\)/);
+  assert.match(show, /_dmaBufferIndex \^= 1/);
+});
+
+test('FPV race mode fully replaces the WLED background effect', () => {
+  const overlay = functionBody(fpvUsermod, 'void handleOverlayDraw() override');
+  assert.match(overlay, /strip\.fill\(_scene\.background\)/);
+  assert.doesNotMatch(overlay, /color_fade|_backgroundEffectPercent|getPixelColorNoMap/);
+
+  const controls = functionBody(fpvUsermod, 'void readDisplayControls(');
+  assert.doesNotMatch(controls, /backgroundEffect/);
 });

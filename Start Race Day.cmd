@@ -12,8 +12,7 @@ if errorlevel 1 (
 )
 
 set "LIVETIME_QUE_ROOT=%~dp0..\LiveTimeQue"
-if not defined FPV_HUB_SOURCE_URL set "FPV_HUB_SOURCE_URL=https://techdroneleague.livefpv.com/"
-if not defined FPV_HUB_WRITE_PASSWORD set "FPV_HUB_WRITE_PASSWORD=local-race-day"
+if not defined FPV_HUB_SOURCE_URL set "FPV_HUB_SOURCE_URL=https://rotormaniacs.livefpv.com/live/"
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
     "$root = '%~dp0';" ^
@@ -52,5 +51,4 @@ if errorlevel 1 (
 
 echo Race Data Hub, Race Display Control Desk, and LiveTimeQue were opened.
 echo Hub announcements: http://127.0.0.1:4175/admin
-echo Local announcement password: local-race-day
 exit /b 0

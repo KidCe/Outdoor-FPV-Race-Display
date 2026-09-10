@@ -25,16 +25,17 @@ Then open `http://127.0.0.1:4185/` manually. Node.js 20 or newer is recommended.
 
 The existing **Start Race Display.cmd** is the display-only fallback. **Start RaceVision Capture.cmd** is for later packet capture from LiveTime and is not needed for the normal race-day setup.
 
-The local Hub uses `https://techdroneleague.livefpv.com/` as its default upstream event and stores trusted state in `data/race-data-hub.json`. To use another event, set `FPV_HUB_SOURCE_URL` before starting the Hub. The default local write password is `local-race-day`.
+For software-only testing, double-click **Start Race Simulator.cmd** instead. It starts the local Fixture Hub and opens the simulator at `http://127.0.0.1:4175/simulator` together with the Control Desk and LiveTimeQue. This fixture mode does not contact a live event. The simulator page lets you select a heat, set **Staging**, **Running**, **Complete**, or **Not run**, set the Next Up status, and advance to the next heat. Use **Reset to first heat** to return to a known starting state. The simulator is intentionally available only on the Fixture Hub; it is not part of a normal production Hub.
+
+The local Hub currently uses `https://rotormaniacs.livefpv.com/live/` as its default upstream event and stores trusted state in `data/race-data-hub.json`. To use another event, set `FPV_HUB_SOURCE_URL` before starting the Hub or accept a new URL in Hub Admin. Admin actions are available directly on the trusted local race network and do not require a separate password.
 
 ## 2. Use the central Hub
 
 1. Open **Race Data Hub Admin**.
 2. Confirm the status shows a selected event and a recent snapshot. The Hub polls the LiveTimeQue connector and also listens to its live status stream.
-3. Enter `local-race-day` in **Shared event write password**.
-4. Use **Create announcement** to publish a title, body, and importance. The announcement is event-scoped and is delivered to every Hub consumer, including the Control Desk.
-5. Use **Clear globally** when the announcement is no longer needed.
-6. In either consumer, confirm the source label says **Race Data Hub** and the updated time advances.
+3. Use **Create announcement** to publish a title, body, and importance. The announcement is event-scoped and is delivered to every Hub consumer, including the Control Desk.
+4. Use **Clear globally** when the announcement is no longer needed.
+5. In either consumer, confirm the source label says **Race Data Hub** and the updated time advances.
 
 ## 3. First test: browser and preview, no hardware
 
@@ -57,7 +58,7 @@ Do this only after the preview is correct.
 1. Put the WLED controller and this PC on the same network.
 2. Open **Display output settings** and select **Wireless WLED**.
 3. Enter the controller URL, for example `http://192.168.0.201/`.
-4. Keep **WLED background effect** at `0%` for the first test and use a low brightness if the panel is close to you.
+4. FPV live output uses a fixed black background. Use a low brightness if the panel is close to you.
 5. Enable **Enable output** and wait for `connected`.
 6. Only then enable **Live output**.
 
@@ -81,6 +82,15 @@ Use **Stop & clear display** before disconnecting or changing the controller. Th
 5. **Schema repair:** change a structural preset option, then enable live output again. Confirm that the new schema is installed and output resumes.
 6. **Pixel readback:** click **Read displayed pixels**, first with **Panel output buffer**, then with **Logical WLED framebuffer**. Compare the result with the preview and optionally use **Download PNG**.
 7. **Safe stop:** click **Stop & clear display** and confirm that live control is off and the fallback WLED effect resumes.
+
+### Simulator test sequence
+
+1. Open `http://127.0.0.1:4175/simulator`.
+2. Set the current heat to **Staging** and verify that both consumers show the same heat and status.
+3. Set it to **Running**, then **Complete**. Verify the status and display header change in the Control Desk and LiveTimeQue.
+4. Click **Complete current & advance to next**. Verify that the old heat remains complete, the next heat becomes current/staging, and the queue moves forward.
+5. Set Next Up to **None** and back to **Staging** to test the missing-next-heat case.
+6. Use **Reset to first heat** before a new test run.
 
 For software-only regression tests, run this from the repository root:
 

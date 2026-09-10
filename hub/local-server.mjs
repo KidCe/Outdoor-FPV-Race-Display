@@ -14,8 +14,7 @@ const DEFAULTS = Object.freeze({
   host: "127.0.0.1",
   port: 4175,
   connectorUrl: "http://127.0.0.1:4174",
-  sourceUrl: "https://techdroneleague.livefpv.com/",
-  writePassword: "local-race-day",
+  sourceUrl: "https://rotormaniacs.livefpv.com/live/",
   refreshMs: 15000,
   statePath: resolve(root, "data/race-data-hub.json")
 });
@@ -94,6 +93,17 @@ function adaptPilot(driver, index) {
   const channel = String(driver.channel || driver.video?.channel || "").toUpperCase();
   const channelMatch = channel.match(/^([A-Z]+)(\d+)$/);
   const frequency = Number(driver.frequency || driver.video?.frequencyMHz);
+  const sourceTiming = driver.timing || driver.live;
+  const timing = sourceTiming ? compact({
+    position: Number.isInteger(Number(sourceTiming.position)) && Number(sourceTiming.position) > 0 ? Number(sourceTiming.position) : undefined,
+    laps: Number.isInteger(Number(sourceTiming.laps)) && Number(sourceTiming.laps) >= 0 ? Number(sourceTiming.laps) : undefined,
+    lapTime: sourceTiming.lapTime == null || sourceTiming.lapTime === "" ? undefined : String(sourceTiming.lapTime).slice(0, 40),
+    elapsedTime: sourceTiming.elapsedTime == null || sourceTiming.elapsedTime === "" ? undefined : String(sourceTiming.elapsedTime).slice(0, 40),
+    fastestLap: sourceTiming.fastestLap == null || sourceTiming.fastestLap === "" ? undefined : String(sourceTiming.fastestLap).slice(0, 40),
+    averageLap: sourceTiming.averageLap == null || sourceTiming.averageLap === "" ? undefined : String(sourceTiming.averageLap).slice(0, 40),
+    behind: sourceTiming.behind == null || sourceTiming.behind === "" ? undefined : String(sourceTiming.behind).slice(0, 40),
+    consistencyPercent: Number.isFinite(Number(sourceTiming.consistencyPercent ?? sourceTiming.consistency)) ? Number(sourceTiming.consistencyPercent ?? sourceTiming.consistency) : undefined
+  }) : undefined;
   return compact({
     id: safeId(driver.id || driver.sourceId || driver.name, `pilot-${index + 1}`),
     sourceId: driver.sourceId ? safeId(driver.sourceId, `source-pilot-${index + 1}`) : undefined,
@@ -101,6 +111,7 @@ function adaptPilot(driver, index) {
     slot: Number.isInteger(driver.slot) && driver.slot > 0 ? driver.slot : index + 1,
     open: Boolean(driver.open),
     bumpUp: Boolean(driver.bumpUp),
+    timing: timing && Object.keys(timing).length ? timing : undefined,
     video: channel || Number.isFinite(frequency) ? compact({
       channel: channel || undefined,
       band: channelMatch?.[1],
@@ -343,7 +354,6 @@ export class RaceHubRuntime {
     port = Number(process.env.FPV_HUB_PORT || DEFAULTS.port),
     connectorUrl = process.env.FPV_HUB_CONNECTOR_URL || DEFAULTS.connectorUrl,
     sourceUrl = process.env.FPV_HUB_SOURCE_URL || DEFAULTS.sourceUrl,
-    writePassword = process.env.FPV_HUB_WRITE_PASSWORD || DEFAULTS.writePassword,
     refreshMs = Number(process.env.FPV_HUB_REFRESH_MS || DEFAULTS.refreshMs),
     statePath = process.env.FPV_HUB_STATE_PATH || DEFAULTS.statePath,
     enableTestSnapshotInjection = process.env.FPV_HUB_ENABLE_TEST_SNAPSHOT_INJECTION === "1",
@@ -354,7 +364,7 @@ export class RaceHubRuntime {
     this.source = new LiveTimeQueHubSource({ connectorUrl, sourceUrl, fetchImpl });
     this.store = new TrustedStore({ persistencePath: statePath });
     this.hub = new RaceDataHub({ source: this.source, store: this.store });
-    this.server = createHubServer({ store: this.store, writePassword, configureSource: sourceUrl => this.configureSource(sourceUrl), enableTestSnapshotInjection });
+    this.server = createHubServer({ store: this.store, configureSource: sourceUrl => this.configureSource(sourceUrl), enableTestSnapshotInjection });
     this.refreshMs = Math.max(5000, refreshMs);
     this.pollTimer = null;
     this.streamAbort = null;
@@ -462,7 +472,6 @@ export class RaceHubRuntime {
     await new Promise(resolveListen => this.server.listen(this.port, this.host, resolveListen));
     console.log(`Race Data Hub listening on http://${this.host}:${this.port}`);
     console.log(`Hub admin: http://${this.host}:${this.port}/admin`);
-    console.log(`Announcement password: ${process.env.FPV_HUB_WRITE_PASSWORD || DEFAULTS.writePassword}`);
     try { await this.sync(); } catch (error) { console.warn(`Initial LiveTime synchronization failed: ${error.message}`); }
     this.pollTimer = setInterval(() => this.sync().catch(error => console.warn(`LiveTime synchronization failed: ${error.message}`)), this.refreshMs);
     this.startStream();

@@ -13,7 +13,7 @@ const sourceSnapshot = {
   schedule: { currentRaceId: "race-2", currentIndex: 1, nextRaceIds: [] },
   races: [
     { id: "race-1", order: 0, label: "FPV (Heat 1/2)", phase: "Qualifier", round: "Round 1", status: "complete", links: {}, pilots: [{ id: "pilot-1", callsign: "Pilot One", slot: 1, video: { channel: "R1", frequencyMHz: 5658 } }] },
-    { id: "race-2", order: 1, label: "FPV (Heat 2/2)", phase: "Qualifier", round: "Round 1", status: "ready", links: {}, pilots: [{ id: "pilot-2", callsign: "Pilot Two", slot: 1, video: { channel: "F2", frequencyMHz: 5740 } }] }
+    { id: "race-2", order: 1, label: "FPV (Heat 2/2)", phase: "Qualifier", round: "Round 1", status: "ready", links: {}, pilots: [{ id: "pilot-2", callsign: "Pilot Two", slot: 1, video: { channel: "F2", frequencyMHz: 5740 }, timing: { position: 2, laps: 3, lapTime: "18.420", fastestLap: "17.900", averageLap: "18.100", behind: "+1.200", consistencyPercent: 96.5 } }] }
   ],
   quality: { state: "fresh", completeRaceCount: 1, warnings: [], domains: { schedule: { state: "fresh", capturedAt: "2026-09-06T10:00:00.000Z", sourceIds: ["source-1"] } } }
 };
@@ -25,6 +25,7 @@ test("local Hub adapter converts the connector contract and preserves pilots/sta
   assert.equal(snapshot.races[1].status, "staging");
   assert.equal(snapshot.races[1].pilots[0].callsign, "Pilot Two");
   assert.equal(snapshot.races[1].pilots[0].video.frequencyMHz, 5740);
+  assert.deepEqual(snapshot.races[1].pilots[0].timing, { position: 2, laps: 3, lapTime: "18.420", fastestLap: "17.900", averageLap: "18.100", behind: "+1.200", consistencyPercent: 96.5 });
   assert.deepEqual(validateSnapshot(snapshot), { valid: true, errors: [] });
 });
 

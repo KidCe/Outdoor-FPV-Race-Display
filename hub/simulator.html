@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Race-Day Simulator</title>
+  <link rel="stylesheet" href="/simulator.css">
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Local Fixture Hub</p>
+        <h1>Race-Day Simulator</h1>
+        <p class="lede">Click through heat and race-status changes without using a live LiveFPV event.</p>
+      </div>
+      <nav aria-label="Hub tools"><a href="/admin">Hub Admin</a></nav>
+    </header>
+
+    <section class="card connection" aria-labelledby="connection-heading">
+      <div class="section-heading">
+        <h2 id="connection-heading">Simulator connection</h2>
+        <button id="reload" class="secondary" type="button">Reload snapshot</button>
+      </div>
+      <p id="connection-status" class="status" role="status">Loading fixture…</p>
+    </section>
+
+    <section class="card" aria-labelledby="scenario-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Scenario</p>
+          <h2 id="scenario-heading">Change the race state</h2>
+        </div>
+        <button id="reset" class="secondary" type="button">Reset to first heat</button>
+      </div>
+
+      <div class="state-grid" aria-live="polite">
+        <article class="state-panel current-panel">
+          <p class="eyebrow">Current heat</p>
+          <h3 id="current-title">—</h3>
+          <p id="current-status" class="state-label">—</p>
+          <p id="current-pilots" class="pilots">—</p>
+        </article>
+        <article class="state-panel next-panel">
+          <p class="eyebrow">Next up</p>
+          <h3 id="next-title">—</h3>
+          <p id="next-status" class="state-label">—</p>
+          <p id="next-pilots" class="pilots">—</p>
+        </article>
+      </div>
+
+      <div class="control-group">
+        <label>Selected current heat
+          <select id="current-heat" disabled></select>
+        </label>
+        <button id="select-current" class="secondary" type="button" disabled>Use selected heat</button>
+      </div>
+
+      <div class="control-group">
+        <p class="control-label">Set current status</p>
+        <div class="button-row" id="current-status-buttons">
+          <button type="button" data-status="staging" disabled>Staging</button>
+          <button type="button" data-status="running" disabled>Running</button>
+          <button type="button" data-status="complete" disabled>Complete</button>
+          <button type="button" data-status="not_run" disabled>Not run</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <p class="control-label">Set next-up status</p>
+        <div class="button-row" id="next-status-buttons">
+          <button type="button" data-status="staging" disabled>Staging</button>
+          <button type="button" data-status="scheduled" disabled>Scheduled</button>
+          <button type="button" data-status="unknown" disabled>Unknown</button>
+          <button type="button" data-status="none" disabled>None</button>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="advance" class="primary" type="button" disabled>Complete current &amp; advance to next</button>
+      </div>
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card compact-card" aria-labelledby="event-heading">
+      <h2 id="event-heading">Event label</h2>
+      <form id="event-form">
+        <label>Event name<input id="event-name" maxlength="200" required></label>
+        <button class="secondary" type="submit">Apply event name</button>
+      </form>
+      <p class="hint">Use Hub Admin for real event selection and announcements. The simulator only changes the local test snapshot.</p>
+    </section>
+  </main>
+  <script type="module" src="/simulator.js"></script>
+</body>
+</html>

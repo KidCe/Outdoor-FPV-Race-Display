@@ -69,6 +69,37 @@ test("complete and Next Up rotate on independent five-second phases", () => {
   assert.deepEqual(controller.getState(), { active: true, view: "current", phase: "complete", delay: 5000 });
 });
 
+test("running and completed heats order matrix rows by live position", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const current = snapshot.races.find(race => race.id === snapshot.schedule.currentRaceId);
+  current.status = "running";
+  current.pilots = [
+    { id: "too-bad", callsign: "2Bad", slot: 1, video: { channel: "R1", frequencyMHz: 5658 }, timing: { position: 4, laps: 1 } },
+    { id: "bionic", callsign: "BionicButterfly", slot: 4, video: { channel: "R8", frequencyMHz: 5917 }, timing: { position: 1, laps: 4 } },
+    { id: "super", callsign: "supergeek", slot: 2, video: { channel: "R3", frequencyMHz: 5732 }, timing: { position: 3, laps: 2 } },
+    { id: "coded", callsign: "Coded", slot: 3, video: { channel: "R6", frequencyMHz: 5843 }, timing: { position: 2, laps: 3 } }
+  ];
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  const display = new DisplayScene(profile);
+
+  assert.deepEqual(display.project(snapshot, "current").race.pilots.map(pilot => pilot.callsign), ["BionicButterfly", "Coded", "supergeek", "2Bad"]);
+  current.status = "complete";
+  assert.deepEqual(display.project(snapshot, "current").race.pilots.map(pilot => pilot.callsign), ["BionicButterfly", "Coded", "supergeek", "2Bad"]);
+});
+
+test("staging heats retain lineup order even when stale result positions exist", async () => {
+  const snapshot = await fixture("snapshot-fresh.json");
+  const current = snapshot.races.find(race => race.id === snapshot.schedule.currentRaceId);
+  current.status = "staging";
+  current.pilots = [
+    { id: "first-slot", callsign: "FirstSlot", slot: 1, timing: { position: 2 } },
+    { id: "second-slot", callsign: "SecondSlot", slot: 2, timing: { position: 1 } }
+  ];
+  const profile = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+
+  assert.deepEqual(new DisplayScene(profile).project(snapshot, "current").race.pilots.map(pilot => pilot.callsign), ["FirstSlot", "SecondSlot"]);
+});
+
 test("cycle tick advances after a throttled timer deadline", () => {
   let now = 0;
   let timerId = 0;

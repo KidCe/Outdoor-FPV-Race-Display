@@ -279,9 +279,9 @@ test("LiveFPV and LiveTime replay flows through Hub, local and remote consumers,
   const persistencePath = join(directory, "trusted.json");
   const store = new TrustedStore({ epoch: "hub-integrated-1", persistencePath, historyLimit: 64 });
   const hub = new RaceDataHub({ source, store });
-  const localServer = createHubServer({ store, writePassword: "event-lan-secret", heartbeatMs: 0 });
+  const localServer = createHubServer({ store, heartbeatMs: 0 });
   const localPort = await listen(localServer);
-  const remoteServer = createHubServer({ store, writePassword: "event-lan-secret", heartbeatMs: 0 });
+  const remoteServer = createHubServer({ store, heartbeatMs: 0 });
   const remotePort = await listen(remoteServer);
   const localStorage = memoryStorage();
   let displayClient;
@@ -350,18 +350,16 @@ test("LiveFPV and LiveTime replay flows through Hub, local and remote consumers,
     assert.equal(replayed.some(event => event.type === "reset"), false);
     assert.ok(replayed.some(event => event.type === "snapshot" && event.data.snapshotId === rerun.snapshotId));
 
-    const unauthorised = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements`, { method: "POST", headers: { "content-type": "application/json", "x-event-write-password": "wrong" }, body: JSON.stringify({ title: "Race", body: "Do not show", importance: 3, createdByDeviceId: "manager" }) });
-    assert.equal(unauthorised.status, 401);
-    const malformed = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements`, { method: "POST", headers: { "content-type": "application/json", "x-event-write-password": "event-lan-secret" }, body: "{" });
+    const malformed = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
     assert.equal(malformed.status, 400);
-    const createdResponse = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements`, { method: "POST", headers: { "content-type": "application/json", "x-event-write-password": "event-lan-secret" }, body: JSON.stringify({ title: "Channels changed", body: "PilotOne R1 -> R8", importance: 3, createdByDeviceId: "race-manager" }) });
+    const createdResponse = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Channels changed", body: "PilotOne R1 -> R8", importance: 3, createdByDeviceId: "race-manager" }) });
     assert.equal(createdResponse.status, 201);
     const createdAnnouncement = await createdResponse.json();
     await waitFor(() => displayClient.getState().announcements.some(item => item.announcementId === createdAnnouncement.announcementId), "display announcement");
     await waitFor(() => queueClient.getState().announcements.some(item => item.announcementId === createdAnnouncement.announcementId), "LiveTimeQue announcement");
     const history = await (await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements/history`)).json();
     assert.equal(history.items[0].status, "active");
-    const clearResponse = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements/${encodeURIComponent(createdAnnouncement.announcementId)}/clear`, { method: "POST", headers: { "x-event-write-password": "event-lan-secret" } });
+    const clearResponse = await fetch(`http://127.0.0.1:${localPort}/api/v1/announcements/${encodeURIComponent(createdAnnouncement.announcementId)}/clear`, { method: "POST" });
     assert.equal(clearResponse.status, 200);
     await waitFor(() => displayClient.getState().announcements.length === 0, "global announcement clear on display");
     await waitFor(() => queueClient.getState().announcements.length === 0, "global announcement clear on LiveTimeQue");
@@ -411,7 +409,7 @@ test("LiveFPV and LiveTime replay flows through Hub, local and remote consumers,
     assert.equal(recovered.quality.state, "stale");
     assert.equal(recovered.capturedAt, final.capturedAt);
 
-    const deactivate = await fetch(`http://127.0.0.1:${localPort}/api/v1/admin/event/deactivate`, { method: "POST", headers: { "content-type": "application/json", "x-event-write-password": "event-lan-secret" }, body: "{}" });
+    const deactivate = await fetch(`http://127.0.0.1:${localPort}/api/v1/admin/event/deactivate`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     assert.equal(deactivate.status, 200);
     await waitFor(() => displayClient.getState().snapshot === null && displayClient.getState().connection === "disabled", "event deactivation on display");
     await waitFor(() => queueClient.getState().snapshot === null && queueClient.getState().connection === "disabled", "event deactivation on LiveTimeQue");

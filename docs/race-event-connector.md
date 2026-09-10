@@ -1,6 +1,6 @@
 # Race event connector
 
-The browser display consumes `org.fpv.race-event.snapshot` version 1 from LiveTimeQue. The standard separates timing-system collection from display rendering: LiveTimeQue owns LiveFPV HTML/LiveTime compatibility, retries, cache, and freshness; this project owns the small projection from a current race to header, callsigns, video channels, and channel colors.
+The browser display consumes `org.fpv.race-event.snapshot` version 1 from LiveTimeQue. The standard separates timing-system collection from display rendering: LiveTimeQue owns LiveFPV HTML/LiveTime compatibility, retries, cache, and freshness; this project owns the small projection from a current race to header, callsigns, video channels, channel colors, and source-proven running/completed placement order. Pilot timing remains optional so staging lineups never acquire an inferred race result.
 
 Channel colors now belong to the versioned race-day profile and are applied to every projected heat. Partial live packets may omit video metadata; `DisplayScene` resolves a missing assignment from the same pilot elsewhere in the event snapshot instead of clearing a previously known channel.
 
@@ -26,6 +26,6 @@ LiveTime can briefly report an older heat after the race manager navigates back 
 
 ## Hub runtime boundary
 
-The display and LiveTimeQue can consume the same central Hub through `http://127.0.0.1:4175`. The [Start Race Day.cmd](../Start%20Race%20Day.cmd) launcher starts the Hub, the display server, and the neighboring LiveTimeQue connector, then opens both consumers in Hub mode. The Hub polls the connector for schedule data, consumes its LiveTime status stream, persists the last trusted snapshot under `data/race-data-hub.json`, and exposes the password-protected announcement admin at `/admin`. Direct LiveTimeQue mode on port `4174` remains available for migration and diagnostics, but it is not the central announcement path.
+The display and LiveTimeQue can consume the same central Hub through `http://127.0.0.1:4175`. The [Start Race Day.cmd](../Start%20Race%20Day.cmd) launcher starts the Hub, the display server, and the neighboring LiveTimeQue connector, then opens both consumers in Hub mode. The Hub polls the connector for schedule data, consumes its LiveTime status stream, persists the last trusted snapshot under `data/race-data-hub.json`, and exposes the local announcement admin at `/admin`. Admin writes are intentionally direct on the trusted race LAN. Direct LiveTimeQue mode on port `4174` remains available for migration and diagnostics, but it is not the central announcement path.
 
 The GitHub Pages copy of the display is HTTPS. Browsers can block requests from it to a plain HTTP connector on the local PC, so local HTTP is the reliable race-day setup until the collector is hosted behind HTTPS.

@@ -141,6 +141,18 @@ test("race-day profile preserves explicit source mode and infers Hub mode for ol
   assert.equal(validateRaceDayProfile({ ...older, source: { ...older.source, mode: "live" } }).source.mode, "live");
 });
 
+test("race-day profiles discard legacy WLED background controls and keep the scene black", () => {
+  const candidate = new RaceDayProfile({ storage: new MemoryProfileStorage() }).get();
+  candidate.output.backgroundEffect = 25;
+  candidate.display.backgroundColor = "#ff7a00";
+  const profile = validateRaceDayProfile(candidate);
+  const schema = new DisplayScene(profile).getSchema();
+
+  assert.equal(Object.hasOwn(profile.output, "backgroundEffect"), false);
+  assert.equal(Object.hasOwn(profile.display, "backgroundColor"), false);
+  assert.equal(schema.canvas.background, 0);
+});
+
 test("legacy DOM-shaped settings migrate once into the versioned profile", () => {
   const values = new Map([["fpv-race-wled-display-v2", JSON.stringify({ transport: "wireless", wledUrl: "http://display.test", headerColor: "#123456", outputEnabled: true, liveSend: true, ch3: "R8", cc3: "#abcdef" })]]);
   const storage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value) };

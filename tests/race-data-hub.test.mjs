@@ -229,10 +229,10 @@ test('local HTTP/SSE transport serves bootstrap, Last-Event-ID replay, and healt
   }
 });
 
-test('local Hub Admin surface serves diagnostics and protects event selection/deactivation', async () => {
+test('local Hub Admin surface serves diagnostics and allows local event control without credentials', async () => {
   const store = new TrustedStore({ epoch: 'admin-epoch' });
   let acceptedSource = null;
-  const server = createHubServer({ store, writePassword: 'manager-password', heartbeatMs: 0, configureSource: async sourceUrl => { acceptedSource = sourceUrl; return { sourceUrl, status: store.getStatus(), snapshot: store.snapshot }; } });
+  const server = createHubServer({ store, heartbeatMs: 0, configureSource: async sourceUrl => { acceptedSource = sourceUrl; return { sourceUrl, status: store.getStatus(), snapshot: store.snapshot }; } });
   const port = await listen(server);
   try {
     const admin = await fetch(`http://127.0.0.1:${port}/admin`);
@@ -240,22 +240,19 @@ test('local Hub Admin surface serves diagnostics and protects event selection/de
     const adminMarkup = await admin.text();
     assert.match(adminMarkup, /Race Data Hub Admin/);
     assert.match(adminMarkup, /Accept URL &amp; connect/);
-    const denied = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventSessionId: 'aircrasher-session-1' }) });
-    assert.equal(denied.status, 401);
-    const selected = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: JSON.stringify({ eventSessionId: 'aircrasher-session-1', event: { id: 'aircrasher-event', name: 'Aircrasher Open' } }) });
+    assert.doesNotMatch(adminMarkup, /password/i);
+    const selected = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventSessionId: 'aircrasher-session-1', event: { id: 'aircrasher-event', name: 'Aircrasher Open' } }) });
     assert.equal(selected.status, 200);
     assert.equal((await selected.json()).activeEvent, 'aircrasher-session-1');
     assert.equal(store.active, true);
-    const deniedSource = await fetch(`http://127.0.0.1:${port}/api/v1/admin/source`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceUrl: 'https://example.livefpv.com/' }) });
-    assert.equal(deniedSource.status, 401);
-    const accepted = await fetch(`http://127.0.0.1:${port}/api/v1/admin/source`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: JSON.stringify({ sourceUrl: 'https://example.livefpv.com/live/' }) });
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/v1/admin/source`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceUrl: 'https://example.livefpv.com/live/' }) });
     assert.equal(accepted.status, 200);
     assert.equal(acceptedSource, 'https://example.livefpv.com/live/');
     assert.equal((await accepted.json()).snapshot, null);
-    const deactivated = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event/deactivate`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: '{}' });
+    const deactivated = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event/deactivate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.equal(deactivated.status, 200);
     assert.equal(store.active, false);
-    const unsafe = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'manager-password' }, body: JSON.stringify({ eventSessionId: 'unsafe-session', event: { id: 'unsafe-event', name: 'Unsafe', sourceUrl: 'https://user:pass@host/live/scoring/' } }) });
+    const unsafe = await fetch(`http://127.0.0.1:${port}/api/v1/admin/event`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eventSessionId: 'unsafe-session', event: { id: 'unsafe-event', name: 'Unsafe', sourceUrl: 'https://user:pass@host/live/scoring/' } }) });
     assert.equal(unsafe.status, 400);
     assert.equal(store.active, false);
   } finally {
@@ -277,23 +274,21 @@ test('Hub metadata override changes display metadata without changing source ide
   assert.equal(store.snapshot.event.name, 'Operator event name');
 });
 
-test('announcement writes require the shared password and remain event-scoped', async () => {
+test('announcement writes need no local password and remain event-scoped', async () => {
   const fresh = await fixture('snapshot-fresh.json');
   const store = new TrustedStore({ eventSessionId: fresh.eventSessionId, now: () => new Date('2026-09-06T10:00:00.000Z') });
   store.publish(fresh);
-  const server = createHubServer({ store, writePassword: 'correct', heartbeatMs: 0 });
+  const server = createHubServer({ store, heartbeatMs: 0 });
   const port = await listen(server);
   try {
     const body = { title: 'Channels changed', body: 'PilotOne R1 -> R8', importance: 3, createdByDeviceId: 'race-manager' };
-    const denied = await fetch(`http://127.0.0.1:${port}/api/v1/announcements`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'wrong' }, body: JSON.stringify(body) });
-    assert.equal(denied.status, 401);
-    const created = await fetch(`http://127.0.0.1:${port}/api/v1/announcements`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-event-write-password': 'correct' }, body: JSON.stringify(body) });
+    const created = await fetch(`http://127.0.0.1:${port}/api/v1/announcements`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(created.status, 201);
     const announcement = await created.json();
     assert.equal(store.snapshot.activeAnnouncements[0].announcementId, announcement.announcementId);
     const history = await fetch(`http://127.0.0.1:${port}/api/v1/announcements/history`);
     assert.equal((await history.json()).items.length, 1);
-    const cleared = await fetch(`http://127.0.0.1:${port}/api/v1/announcements/${announcement.announcementId}/clear`, { method: 'POST', headers: { 'x-event-write-password': 'correct' } });
+    const cleared = await fetch(`http://127.0.0.1:${port}/api/v1/announcements/${announcement.announcementId}/clear`, { method: 'POST' });
     assert.equal(cleared.status, 200);
     assert.deepEqual(store.getActiveAnnouncements(), []);
     const expiring = store.createAnnouncement({ title: 'Temporary notice', body: 'This will expire in the replay.', importance: 2, createdByDeviceId: 'race-manager', expiresAt: '2026-09-06T10:00:30.000Z' });

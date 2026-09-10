@@ -204,7 +204,24 @@
         },
         "video": {
           "anyOf": [{ "$ref": "#/$defs/video" }, { "type": "null" }]
+        },
+        "timing": {
+          "anyOf": [{ "$ref": "#/$defs/pilotTiming" }, { "type": "null" }]
         }
+      }
+    },
+    "pilotTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "position": { "type": "integer", "minimum": 1 },
+        "laps": { "type": "integer", "minimum": 0 },
+        "lapTime": { "type": "string", "maxLength": 40 },
+        "elapsedTime": { "type": "string", "maxLength": 40 },
+        "fastestLap": { "type": "string", "maxLength": 40 },
+        "averageLap": { "type": "string", "maxLength": 40 },
+        "behind": { "type": "string", "maxLength": 40 },
+        "consistencyPercent": { "type": "number", "minimum": 0, "maximum": 100 }
       }
     },
     "video": {

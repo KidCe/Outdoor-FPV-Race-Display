@@ -36,7 +36,7 @@ test("OutputSession keeps the visible state unchanged until the final state chun
     }
   });
   const session = new OutputSession({ adapterFactory });
-  session.configure({ transport: "test", brightness: 50, backgroundEffect: 0 });
+  session.configure({ transport: "test", brightness: 50 });
   session.setLive(true);
   await session.setEnabled(true);
   session.activeSchema = schema;

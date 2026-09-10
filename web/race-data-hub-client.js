@@ -109,9 +109,10 @@ function validateVideo(video, name) {
 }
 
 function validatePilot(pilot, name) {
-  object(pilot, name); noUnknown(pilot, new Set(["id", "sourceId", "callsign", "slot", "open", "bumpUp", "match", "video"]), name); id(pilot.id, `${name} ID`); string(pilot.callsign, `${name} callsign`, { min: 1, max: 80 });
+  object(pilot, name); noUnknown(pilot, new Set(["id", "sourceId", "callsign", "slot", "open", "bumpUp", "match", "video", "timing"]), name); id(pilot.id, `${name} ID`); string(pilot.callsign, `${name} callsign`, { min: 1, max: 80 });
   if (pilot.sourceId !== undefined) id(pilot.sourceId, `${name} source ID`); if (pilot.slot !== undefined) integer(pilot.slot, `${name} slot`, 1);
   if (pilot.open !== undefined && typeof pilot.open !== "boolean") throw new Error(`${name} open flag is invalid.`); if (pilot.bumpUp !== undefined && typeof pilot.bumpUp !== "boolean") throw new Error(`${name} bump-up flag is invalid.`);
+  if (pilot.timing !== undefined && pilot.timing !== null) { object(pilot.timing, `${name} timing`); noUnknown(pilot.timing, new Set(["position", "laps", "lapTime", "elapsedTime", "fastestLap", "averageLap", "behind", "consistencyPercent"]), `${name} timing`); if (pilot.timing.position !== undefined) integer(pilot.timing.position, `${name} position`, 1); if (pilot.timing.laps !== undefined) integer(pilot.timing.laps, `${name} laps`); for (const key of ["lapTime", "elapsedTime", "fastestLap", "averageLap", "behind"]) if (pilot.timing[key] !== undefined) string(pilot.timing[key], `${name} ${key}`, { max: 40 }); if (pilot.timing.consistencyPercent !== undefined && (typeof pilot.timing.consistencyPercent !== "number" || !Number.isFinite(pilot.timing.consistencyPercent) || pilot.timing.consistencyPercent < 0 || pilot.timing.consistencyPercent > 100)) throw new Error(`${name} consistency is invalid.`); }
   if (pilot.match !== undefined) { object(pilot.match, `${name} match`); noUnknown(pilot.match, new Set(["method", "confidence"]), `${name} match`); if (!["source_id", "callsign", "alias", "manual", "unmatched"].includes(pilot.match.method)) throw new Error(`${name} match method is invalid.`); if (!["high", "medium", "low", "unknown"].includes(pilot.match.confidence)) throw new Error(`${name} match confidence is invalid.`); }
   if (pilot.video !== undefined) validateVideo(pilot.video, `${name} video`); return pilot;
 }

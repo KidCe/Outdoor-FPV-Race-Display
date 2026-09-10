@@ -36,6 +36,7 @@ Consumers must not depend on source-specific packet positions, HTML selectors, s
 10. A local read/unread or dismiss state is not part of the canonical announcement state.
 11. `race.status` is source-authoritative and uses the canonical values `staging`, `running`, and `complete` (plus the other values defined by the schema). A source adapter may explicitly map legacy labels at the Hub boundary, but it must not silently discard the status.
 12. The optional nullable `raceStatus` in a status stream envelope mirrors the status of `schedule.currentRaceId`. It is independent from connection and quality; stale or degraded recovery does not rewrite the trusted race status.
+13. Optional `pilots[].timing` carries source-proven result data (`position`, laps, lap times, gap, and consistency). Adapters preserve these values end to end; they never derive placement from lineup or array order.
 
 ## Validation ownership
 

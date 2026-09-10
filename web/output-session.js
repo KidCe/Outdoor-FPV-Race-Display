@@ -14,9 +14,50 @@ function publicationKey(schema, values, config) {
   return stableSerialize({
     schema: { schemaId: schema?.schemaId, schemaHash: schema?.schemaHash },
     values,
-    brightness: config.brightness,
-    backgroundEffect: config.backgroundEffect
+    brightness: config.brightness
   });
+}
+
+function decodeFrameChunk(chunk, offset, expectedCount) {
+  if (chunk?.offset !== offset || chunk?.count !== expectedCount) {
+    throw new Error(`Frame chunk ${offset} has mismatched coordinates.`);
+  }
+  const payload = chunk?.data;
+  if (typeof payload !== "string" || payload.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload)) {
+    throw new Error(`Frame chunk ${offset} contains invalid base64 data.`);
+  }
+  const bytes = Uint8Array.from(atob(payload), character => character.charCodeAt(0));
+  if (bytes.length !== expectedCount * 3) {
+    throw new Error(`Frame chunk ${offset} has an invalid byte count.`);
+  }
+  return bytes;
+}
+
+function frameChecksum(bytes) {
+  let checksum = 0x811c9dc5;
+  for (const value of bytes) checksum = Math.imul(checksum ^ value, 0x01000193) >>> 0;
+  return checksum;
+}
+
+function extractFpvEnvelope(line) {
+  const start = line.indexOf('{"fpv"');
+  if (start < 0) return null;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = start; index < line.length; index += 1) {
+    const character = line[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) return line.slice(start, index + 1);
+  }
+  return null;
 }
 
 export function nextReconnectDelay(attempt) {
@@ -107,7 +148,10 @@ export class SerialOutputAdapter {
             this.tail += decoder.decode(value, { stream: true });
             const lines = this.tail.split(/\r?\n/);
             this.tail = lines.pop() || "";
-            for (const line of lines) if (line.trim().startsWith("{")) this.onMessage(line.trim());
+            for (const line of lines) {
+              const envelope = extractFpvEnvelope(line);
+              if (envelope) this.onMessage(envelope);
+            }
           }
         } finally { this.reader.releaseLock(); this.reader = null; }
         if (streamEnded) {
@@ -182,7 +226,9 @@ export class OutputSession {
 
   getState() { return { ...this.state }; }
   configure(config) {
-    const next = { ...config };
+    // Background effects are intentionally not part of the FPV live-output
+    // contract. Ignore the legacy field when an imported caller still sends it.
+    const { backgroundEffect: _ignoredBackgroundEffect, ...next } = config || {};
     const targetChanged = this.config.transport && (this.config.transport !== next.transport || this.config.wledUrl !== next.wledUrl || this.config.serialBaud !== next.serialBaud);
     this.config = next;
     if (targetChanged && this.enabled) void this.reconnect();
@@ -294,13 +340,31 @@ export class OutputSession {
     if (!this.ready()) throw new Error("Display is not connected.");
     const seq = ++this.sequence;
     const envelope = { fpv: { p: PROTOCOL_VERSION, sid: this.sessionId, seq, op, ...fields } };
-    const response = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.waiters.delete(seq); reject(new Error(`${op} timed out.`)); }, timeout);
-      this.waiters.set(seq, { resolve, reject, timer });
-    });
-    try { await this.adapter.send(JSON.stringify(envelope)); }
-    catch (error) { const waiter = this.waiters.get(seq); if (waiter) { clearTimeout(waiter.timer); this.waiters.delete(seq); } throw error; }
-    return response;
+    const serialized = JSON.stringify(envelope);
+    const attempts = this.config.transport === "usb" ? 3 : 1;
+    let lastError;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const response = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.waiters.delete(seq);
+          const error = new Error(`${op} timed out.`);
+          error.retryable = true;
+          reject(error);
+        }, timeout);
+        this.waiters.set(seq, { resolve, reject, timer });
+      });
+      try {
+        await this.adapter.send(serialized);
+        return await response;
+      } catch (error) {
+        const waiter = this.waiters.get(seq);
+        if (waiter) { clearTimeout(waiter.timer); this.waiters.delete(seq); }
+        lastError = error;
+        if (!error?.retryable || !this.ready() || attempt === attempts - 1) break;
+        await wait(150);
+      }
+    }
+    throw lastError;
   }
   publish(schema, values) {
     this.lastPublication = { schema, values };
@@ -360,7 +424,7 @@ export class OutputSession {
   }
   async installSchemaNow(schema) {
     this.setState({ controlling: false, message: `Installing changed layout schema (0/${schema.nodes.length})…` });
-    await this.sendCommand("schema.begin", { schema: schema.schemaId, hash: schema.schemaHash, revision: schema.revision, width: schema.canvas.width, height: schema.canvas.height, background: schema.canvas.background, fps: schema.canvas.fps });
+    await this.sendCommand("schema.begin", { schema: schema.schemaId, hash: schema.schemaHash, revision: schema.revision, width: schema.canvas.width, height: schema.canvas.height, background: 0, fps: schema.canvas.fps });
     try {
       for (let index = 0; index < schema.nodes.length; index += 1) {
         await this.sendCommand("schema.node", { node: schema.nodes[index] });
@@ -388,7 +452,7 @@ export class OutputSession {
       const first = index === 0;
       const last = index === chunks.length - 1;
       const fields = { schema: schema.schemaId, hash: schema.schemaHash, tx: transaction, replace: first, commit: last, values: chunks[index] };
-      if (first) { fields.brightness = this.config.brightness; fields.backgroundEffect = this.config.backgroundEffect; }
+      if (first) fields.brightness = this.config.brightness;
       await this.sendCommand("state", fields, 4500);
     }
   }
@@ -397,28 +461,57 @@ export class OutputSession {
     if (this.ready()) await this.sendCommand("activate", { on: false }, 2000);
     this.setState({ controlling: false });
   }
+  async sendCaptureCommand(op, fields = {}, timeout = 5000, attempts = 3) {
+    let lastError;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try { return await this.sendCommand(op, fields, timeout); }
+      catch (error) {
+        lastError = error;
+        if (!this.ready() || attempt === attempts - 1) break;
+        await wait(150);
+      }
+    }
+    throw lastError;
+  }
+  async readCaptureChunk(capture, offset, count, attempts = 3) {
+    let lastError;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const chunk = await this.sendCaptureCommand("frame.chunk", { capture, offset, count }, 7000);
+        return decodeFrameChunk(chunk, offset, count);
+      } catch (error) {
+        lastError = error;
+        if (!this.ready() || attempt === attempts - 1) break;
+        await wait(150);
+      }
+    }
+    throw lastError;
+  }
   readFrame(source = "output") {
     return this.queueOperation(() => this.readFrameNow(source));
   }
   async readFrameNow(source = "output") {
     if (!this.ready()) throw new Error("Connect the display before reading pixels.");
-    const begin = await this.sendCommand("frame.begin", { source }, 5000);
+    const begin = await this.sendCaptureCommand("frame.begin", { source }, 7000);
     const capture = begin.capture;
     try {
       let metadata = begin;
       for (let attempt = 0; attempt < 60 && !metadata.ready; attempt += 1) {
         await wait(100);
-        metadata = await this.sendCommand("frame.status", { capture }, 4000);
+        metadata = await this.sendCaptureCommand("frame.status", { capture }, 5000);
       }
       if (!metadata.ready) throw new Error("Frame capture did not become ready.");
       const pixels = new Uint8Array(metadata.total * 3);
       for (let offset = 0; offset < metadata.total; offset += 48) {
-        const chunk = await this.sendCommand("frame.chunk", { capture, offset, count: Math.min(48, metadata.total - offset) }, 5000);
-        const bytes = Uint8Array.from(atob(chunk.data), character => character.charCodeAt(0));
+        const count = Math.min(48, metadata.total - offset);
+        const bytes = await this.readCaptureChunk(capture, offset, count);
         pixels.set(bytes, offset * 3);
       }
+      if (Number.isInteger(metadata.checksum) && frameChecksum(pixels) !== (metadata.checksum >>> 0)) {
+        throw new Error("Frame checksum mismatch after USB readback.");
+      }
       return { ...metadata, pixels };
-    } finally { await this.sendCommand("frame.end", { capture }, 2000).catch(() => {}); }
+    } finally { await this.sendCaptureCommand("frame.end", { capture }, 2500).catch(() => {}); }
   }
   setState(patch) { this.state = { ...this.state, ...patch }; this.onState(this.getState()); }
 }

@@ -46,7 +46,7 @@ test("OutputSession commits every USB state only after all chunks arrived", asyn
     }
   });
   const output = new OutputSession({ adapterFactory });
-  output.configure({ transport: "usb", brightness: 50, backgroundEffect: 0 });
+  output.configure({ transport: "usb", brightness: 50 });
   output.setLive(true);
   await output.setEnabled(true);
   output.activeSchema = schema;
@@ -87,7 +87,7 @@ test("OutputSession drops superseded states instead of building a stale queue", 
     }
   });
   const output = new OutputSession({ adapterFactory });
-  output.configure({ transport: "usb", brightness: 50, backgroundEffect: 0 });
+  output.configure({ transport: "usb", brightness: 50 });
   output.setLive(true);
   await output.setEnabled(true);
   output.activeSchema = schema;
@@ -125,7 +125,7 @@ test("OutputSession retains a bootstrap scene until output becomes live and conn
     }
   });
   const output = new OutputSession({ adapterFactory });
-  output.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  output.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50 });
   const values = [{ key: "v0", text: "bootstrap" }];
   await output.publish(schema, values);
   output.setLive(true);
@@ -166,6 +166,43 @@ test("SerialOutputAdapter treats an ended USB read stream as a disconnect", asyn
 
   assert.equal(disconnects.length, 1);
   assert.match(disconnects[0].message, /serial stream ended/);
+});
+
+test("SerialOutputAdapter extracts FPV replies that follow WLED serial diagnostics", async () => {
+  const messages = [];
+  let finishRead;
+  let reads = 0;
+  const port = {
+    readable: {
+      getReader() {
+        return {
+          async read() {
+            reads += 1;
+            if (reads === 1) {
+              return {
+                value: new TextEncoder().encode('WLED debug: {"fpv":{"p":1,"seq":7,"ok":true}} trailing diagnostics\n'),
+                done: false
+              };
+            }
+            return new Promise(resolve => { finishRead = () => resolve({ value: undefined, done: true }); });
+          },
+          releaseLock() {},
+          cancel() { finishRead?.(); }
+        };
+      }
+    },
+    writable: { getWriter() { return { async write() {}, releaseLock() {} }; } },
+    async close() {}
+  };
+  const adapter = new SerialOutputAdapter({
+    navigatorRef: { serial: { async getPorts() { return [port]; } } },
+    onMessage: message => messages.push(message)
+  });
+
+  await adapter.connect({ serialBaud: 115200 });
+  await waitFor(() => messages.length === 1);
+  assert.equal(messages[0], '{"fpv":{"p":1,"seq":7,"ok":true}}');
+  await adapter.close();
 });
 
 test("SerialOutputAdapter serializes concurrent USB writes", async () => {
@@ -215,6 +252,27 @@ test("SerialOutputAdapter serializes concurrent USB writes", async () => {
   await adapter.close();
 });
 
+test("OutputSession retries a timed-out USB command with the same protocol sequence", async () => {
+  const output = new OutputSession();
+  const commands = [];
+  output.config = { transport: "usb" };
+  output.enabled = true;
+  output.adapter = {
+    ready() { return true; },
+    async send(text) {
+      const command = JSON.parse(text).fpv;
+      commands.push(command);
+      if (commands.length === 2) {
+        queueMicrotask(() => output.receive(JSON.stringify({ fpv: { p: 1, seq: command.seq, ok: true } })));
+      }
+    }
+  };
+
+  await output.sendCommand("ping", {}, 10);
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0].seq, commands[1].seq);
+});
+
 test("OutputSession keeps frame capture exclusive from live state synchronization", async () => {
   const commands = [];
   let connected = false;
@@ -247,7 +305,7 @@ test("OutputSession keeps frame capture exclusive from live state synchronizatio
     }
   });
   const output = new OutputSession({ adapterFactory });
-  output.configure({ transport: "usb", brightness: 50, backgroundEffect: 0 });
+  output.configure({ transport: "usb", brightness: 50 });
   output.setLive(true);
   await output.setEnabled(true);
   output.activeSchema = schema;
@@ -263,4 +321,45 @@ test("OutputSession keeps frame capture exclusive from live state synchronizatio
   assert.equal(capture, false);
   assert.ok(commands.findIndex(command => command.op === "frame.end") < commands.findIndex(command => command.op === "state"));
   await output.setEnabled(false);
+});
+
+test("OutputSession retries an idempotent frame start when a USB reply is lost", async () => {
+  const output = new OutputSession();
+  let beginAttempts = 0;
+  output.ready = () => true;
+  output.sendCommand = async op => {
+    if (op === "frame.begin") {
+      beginAttempts += 1;
+      if (beginAttempts === 1) throw new Error("frame.begin timed out.");
+      return { capture: 9, ready: true, width: 1, height: 1, total: 1, lit: 1, checksum: 1456420779 };
+    }
+    if (op === "frame.chunk") return { offset: 0, data: "AQID", count: 1 };
+    return { ok: true };
+  };
+
+  const frame = await output.readFrameNow("output");
+  assert.equal(beginAttempts, 2);
+  assert.deepEqual([...frame.pixels], [1, 2, 3]);
+});
+
+test("OutputSession retries a frame chunk when serial noise corrupts its base64 payload", async () => {
+  const output = new OutputSession();
+  let chunkAttempts = 0;
+  output.ready = () => true;
+  output.sendCommand = async op => {
+    if (op === "frame.begin") {
+      return { capture: 11, ready: true, width: 1, height: 1, total: 1, lit: 1, checksum: 1456420779 };
+    }
+    if (op === "frame.chunk") {
+      chunkAttempts += 1;
+      return chunkAttempts === 1
+        ? { offset: 0, count: 1, data: "AQI\ufffd" }
+        : { offset: 0, count: 1, data: "AQID" };
+    }
+    return { ok: true };
+  };
+
+  const frame = await output.readFrameNow("output");
+  assert.equal(chunkAttempts, 2);
+  assert.deepEqual([...frame.pixels], [1, 2, 3]);
 });

@@ -6,4 +6,5 @@ build_output/
 .codex-remote-attachments/
 .DS_Store
 data/
+.runtime/
 .vscode/.browse.c_cpp.db*

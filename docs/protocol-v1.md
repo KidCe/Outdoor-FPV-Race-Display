@@ -35,7 +35,7 @@ The `activate` operation uses the boolean `on` field (`{"on":true}` or `{"on":fa
 
 The chunked installation path keeps every serial/WebSocket message small. The module settings page additionally accepts a complete exported JSON schema file and compiles it into a fixed-size binary scene in WLED's filesystem.
 
-Controllers should split a complete live state into chunks of no more than eight values. Every chunk belongs to one non-zero `tx` transaction. The first `state` command uses `replace: true` and carries brightness/background controls; following commands use `replace: false`. All chunks repeat the same `tx`; only the final chunk sets `commit: true`. The firmware stages these chunks and swaps them into the active output only on the commit, so an incomplete or failed update cannot expose a partial frame. A single-chunk update still uses `replace: true`, the transaction ID, and `commit: true`. A controller may suppress a publication only when the complete semantic state is unchanged and the same connection is still known to own the output; it must invalidate that comparison after reconnect, re-enable, or deactivation. This keeps USB serial lines below WLED's receive-buffer limit while using the same operations over both transports.
+Controllers should split a complete live state into chunks of no more than eight values. Every chunk belongs to one non-zero `tx` transaction. The first `state` command uses `replace: true` and carries the brightness control; following commands use `replace: false`. All chunks repeat the same `tx`; only the final chunk sets `commit: true`. The firmware stages these chunks and swaps them into the active output only on the commit, so an incomplete or failed update cannot expose a partial frame. A single-chunk update still uses `replace: true`, the transaction ID, and `commit: true`. A controller may suppress a publication only when the complete semantic state is unchanged and the same connection is still known to own the output; it must invalidate that comparison after reconnect, re-enable, or deactivation. This keeps USB serial lines below WLED's receive-buffer limit while using the same operations over both transports.
 The browser-side output session coalesces publications while a transfer is in progress, so a slow display receives the newest trusted state instead of a backlog of obsolete scenes. It may suppress a publication only when the complete semantic state is unchanged and the same connection is still known to own the output; it invalidates that comparison after reconnect, re-enable, or deactivation. This keeps USB serial lines below WLED's receive-buffer limit and prevents partial frames or stale pending chunks from becoming visible.
 
 ## Layout model
@@ -65,10 +65,10 @@ Protocol v1 also supports a frozen, chunked RGB readback over USB serial and `/f
 
 The capture automatically releases after 30 seconds if a client disconnects. `exact: false` means an unbuffered HUB75 driver can report only black versus non-black occupancy.
 
-`state` also accepts two display controls:
+`state` accepts one display control:
 
 - `brightness`: global display brightness from 0 to 100 percent.
-- `backgroundEffect`: retained WLED effect brightness from 0 to 25 percent. Zero is the default and replaces the complete segment with the schema background, normally black.
+The FPV race host always installs and renders a black schema background. WLED background effects are intentionally outside the host live-output contract.
 
 Example state update:
 
@@ -85,7 +85,6 @@ Example state update:
     "replace": true,
     "commit": true,
     "brightness": 50,
-    "backgroundEffect": 0,
     "values": [
       {"key":"header","text":"Q12 H22/23","color":16777215},
       {"key":"headerCurrent","color":16777215,"visible":true},

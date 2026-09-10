@@ -35,6 +35,34 @@ test("deactivation uses the firmware activate command field", async () => {
   await session.setEnabled(false);
 });
 
+test("live output omits legacy WLED background effects and installs a black schema", async () => {
+  const operations = [];
+  const adapterFactory = (_transport, callbacks) => ({
+    connected: false,
+    async connect() { this.connected = true; },
+    ready() { return this.connected; },
+    async close() { this.connected = false; },
+    async send(text) {
+      const command = JSON.parse(text).fpv;
+      operations.push(command);
+      queueMicrotask(() => callbacks.onMessage(JSON.stringify({ fpv: { p: 1, seq: command.seq, ok: command.op !== "use", code: command.op === "use" ? "schema_missing" : "ok" } })));
+    }
+  });
+  const session = new OutputSession({ adapterFactory });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 25 });
+  session.setLive(true);
+  await session.setEnabled(true);
+  const schema = { schemaId: "race", schemaHash: "schema-v1", revision: 1, canvas: { width: 80, height: 80, background: 0xffffff, fps: 30 }, nodes: [] };
+  await session.publish(schema, [{ key: "header", text: "Q1", color: 0xffffff }]);
+
+  const begin = operations.find(command => command.op === "schema.begin");
+  assert.equal(begin.background, 0);
+  assert.equal(Object.hasOwn(session.config, "backgroundEffect"), false);
+  assert.ok(operations.filter(command => command.op === "state").length > 0);
+  assert.ok(operations.filter(command => command.op === "state").every(command => !Object.hasOwn(command, "backgroundEffect")));
+  await session.setEnabled(false);
+});
+
 test("unchanged published state is sent only once", async () => {
   const operations = [];
   const adapterFactory = (_transport, callbacks) => ({
@@ -49,7 +77,7 @@ test("unchanged published state is sent only once", async () => {
     }
   });
   const session = new OutputSession({ adapterFactory });
-  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50 });
   session.setLive(true);
   await session.setEnabled(true);
   const schema = { schemaId: "race", schemaHash: "schema-v1" };
@@ -76,13 +104,13 @@ test("changed published state is transmitted", async () => {
     }
   });
   const session = new OutputSession({ adapterFactory });
-  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50 });
   session.setLive(true);
   await session.setEnabled(true);
   const schema = { schemaId: "race", schemaHash: "schema-v1" };
 
   await session.publish(schema, [{ key: "header", text: "Q1", color: 0xffffff }]);
-  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 51, backgroundEffect: 0 });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 51 });
   await session.publish(schema, [{ key: "header", text: "Q1", color: 0xffffff }]);
   await session.publish(schema, [{ key: "header", text: "Q2", color: 0xffffff }]);
 
@@ -105,7 +133,7 @@ test("reconnect replays unchanged state after the new connection is ready", asyn
     }
   });
   const session = new OutputSession({ adapterFactory });
-  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50 });
   session.setLive(true);
   await session.setEnabled(true);
   const schema = { schemaId: "race", schemaHash: "schema-v1" };
@@ -134,7 +162,7 @@ test("a publication arriving during reconnect is not trapped behind a replay cyc
     }
   });
   const session = new OutputSession({ adapterFactory });
-  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50, backgroundEffect: 0 });
+  session.configure({ transport: "wireless", wledUrl: "http://display.test", brightness: 50 });
   session.setLive(true);
   await session.setEnabled(true);
   const schema = { schemaId: "race", schemaHash: "schema-v1" };

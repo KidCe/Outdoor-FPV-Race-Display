@@ -97,6 +97,11 @@ def checksum_rgb(pixels):
     return checksum
 
 
+def transaction_id():
+    """Return a positive parser-safe transaction id for firmware state staging."""
+    return max(1, int(time.time() * 1000) & 0x7FFFFFFF)
+
+
 def capture(client, source):
     begin = client.command("frame.begin", source=source)
     capture_id = begin["capture"]
@@ -121,6 +126,43 @@ def capture(client, source):
         if checksum_rgb(pixels) != metadata["checksum"]:
             raise RuntimeError("Frame checksum mismatch")
         return metadata, pixels
+    finally:
+        client.command("frame.end", capture=capture_id)
+
+
+def capture_rows(client, source, rows):
+    """Capture sparse rows so repeated hardware-coherency probes stay fast."""
+    begin = client.command("frame.begin", source=source)
+    capture_id = begin["capture"]
+    try:
+        metadata = begin
+        for _ in range(60):
+            if metadata.get("ready"):
+                break
+            time.sleep(0.05)
+            metadata = client.command("frame.status", capture=capture_id)
+        if not metadata.get("ready"):
+            raise TimeoutError("Frame did not become ready")
+
+        sampled = bytearray()
+        width = metadata["width"]
+        for row in rows:
+            if row < 0 or row >= metadata["height"]:
+                raise ValueError(f"Sample row {row} is outside the frame")
+            row_start = row * width
+            for offset in range(0, width, 48):
+                count = min(48, width - offset)
+                chunk = client.command(
+                    "frame.chunk",
+                    capture=capture_id,
+                    offset=row_start + offset,
+                    count=count,
+                )
+                decoded = base64.b64decode(chunk["data"])
+                if len(decoded) != chunk["count"] * 3:
+                    raise RuntimeError(f"Invalid chunk on row {row}")
+                sampled.extend(decoded)
+        return metadata, sampled
     finally:
         client.command("frame.end", capture=capture_id)
 
@@ -150,49 +192,86 @@ def semantic_values(active_binding):
     return TEST_VALUES + frame_values
 
 
-def apply_state(client, schema_id, schema_hash, values):
-    for offset in range(0, len(values), 8):
+def apply_state(client, schema_id, schema_hash, values, background_effect=0):
+    transaction = transaction_id()
+    chunks = [values[offset:offset + 8] for offset in range(0, len(values), 8)]
+    for index, chunk in enumerate(chunks):
         fields = {
             "schema": schema_id,
             "hash": schema_hash,
-            "replace": offset == 0,
-            "values": values[offset:offset + 8],
+            "tx": transaction,
+            "replace": index == 0,
+            "commit": index == len(chunks) - 1,
+            "values": chunk,
         }
-        if offset == 0:
-            fields.update(brightness=50, backgroundEffect=0)
+        if index == 0:
+            fields.update(brightness=50, backgroundEffect=background_effect)
         client.command("state", **fields)
 
 
+def verify_static_body(client, samples, interval, stable_from_row):
+    """Allow header animation while rejecting alternating pilot/body frames."""
+    captures = []
+    sample_rows = tuple(range(stable_from_row, 72, 6))
+    for _ in range(samples):
+        metadata, body_sample = capture_rows(client, "output", sample_rows)
+        captures.append((metadata["checksum"], checksum_rgb(body_sample)))
+        time.sleep(interval)
+
+    full_checksums = sorted({full for full, _ in captures})
+    body_checksums = sorted({body for _, body in captures})
+    print(json.dumps({
+        "samples": samples,
+        "intervalSeconds": interval,
+        "sampleRows": sample_rows,
+        "fullFrames": [f"{value:08x}" for value in full_checksums],
+        "bodyFrames": [f"{value:08x}" for value in body_checksums],
+    }, separators=(",", ":")))
+    if len(body_checksums) != 1:
+        raise SystemExit(
+            "FAIL: static pilot/body pixels alternate while only header animation is allowed"
+        )
+    print("PASS: static pilot/body pixels remained coherent across animated header frames")
+
+
 def verify_atomic_update(client, schema_id, schema_hash):
+    sample_rows = tuple(range(20, 72, 6))
     baseline_values = semantic_values("none")
     apply_state(client, schema_id, schema_hash, baseline_values)
     time.sleep(0.2)
-    baseline, _ = capture(client, "output")
+    baseline, baseline_pixels = capture_rows(client, "output", sample_rows)
 
     changed_values = copy.deepcopy(baseline_values)
     changed_values[0]["text"] = "ATOMIC UPDATE"
     changed_values[10]["text"] = "UPDATED"
     chunks = [changed_values[offset:offset + 8] for offset in range(0, len(changed_values), 8)]
-    transaction = int(time.time() * 1000) & 0xFFFFFFFF
+    transaction = transaction_id()
     client.command("state", schema=schema_id, hash=schema_hash, tx=transaction,
                    replace=True, commit=False, brightness=25, backgroundEffect=0,
                    values=chunks[0])
     time.sleep(0.2)
-    staged, _ = capture(client, "output")
+    staged, staged_pixels = capture_rows(client, "output", sample_rows)
     for index, chunk in enumerate(chunks[1:], start=1):
         client.command("state", schema=schema_id, hash=schema_hash, tx=transaction,
                        replace=False, commit=index == len(chunks) - 1, values=chunk)
     time.sleep(0.2)
-    committed, _ = capture(client, "output")
+    committed, committed_pixels = capture_rows(client, "output", sample_rows)
+    baseline_body = checksum_rgb(baseline_pixels)
+    staged_body = checksum_rgb(staged_pixels)
+    committed_body = checksum_rgb(committed_pixels)
     result = {
-        "baseline": f"{baseline['checksum']:08x}",
-        "beforeCommit": f"{staged['checksum']:08x}",
-        "afterCommit": f"{committed['checksum']:08x}",
+        "sampleRows": sample_rows,
+        "baselineFrame": f"{baseline['checksum']:08x}",
+        "beforeCommitFrame": f"{staged['checksum']:08x}",
+        "afterCommitFrame": f"{committed['checksum']:08x}",
+        "baselineBody": f"{baseline_body:08x}",
+        "beforeCommitBody": f"{staged_body:08x}",
+        "afterCommitBody": f"{committed_body:08x}",
     }
     print(json.dumps(result, separators=(",", ":")))
-    if staged["checksum"] != baseline["checksum"]:
+    if staged_body != baseline_body:
         raise SystemExit("FAIL: panel output changed before the complete state was committed")
-    if committed["checksum"] == baseline["checksum"]:
+    if committed_body == baseline_body:
         raise SystemExit("FAIL: committed state did not replace the panel output")
     print("PASS: incomplete state stayed invisible and committed atomically")
 
@@ -207,6 +286,10 @@ def main():
     parser.add_argument("--semantic-states", action="store_true")
     parser.add_argument("--semantic-state", choices=SEMANTIC_BINDINGS)
     parser.add_argument("--atomic-update", action="store_true")
+    parser.add_argument("--stability-samples", type=int, default=0)
+    parser.add_argument("--stability-interval", type=float, default=0.25)
+    parser.add_argument("--stable-from-row", type=int, default=20)
+    parser.add_argument("--background-effect", type=int, default=0)
     args = parser.parse_args()
 
     client, close = (websocket_client(args.url) if args.transport == "websocket"
@@ -223,6 +306,44 @@ def main():
         client.command("use", schema=schema_id, hash=schema_hash)
         if args.atomic_update:
             verify_atomic_update(client, schema_id, schema_hash)
+            return
+        if args.stability_samples:
+            first_values = semantic_values("headerCurrent")
+            apply_state(
+                client,
+                schema_id,
+                schema_hash,
+                first_values,
+                args.background_effect,
+            )
+            time.sleep(1.2)
+
+            binding = args.semantic_state or "headerNext"
+            second_values = copy.deepcopy(semantic_values(binding))
+            replacements = {
+                "header": "SECOND",
+                "pn0": "INDIA",
+                "pn1": "JULIET",
+                "pn2": "KILO",
+                "pn3": "LIMA",
+            }
+            for value in second_values:
+                if value.get("key") in replacements:
+                    value["text"] = replacements[value["key"]]
+            apply_state(
+                client,
+                schema_id,
+                schema_hash,
+                second_values,
+                args.background_effect,
+            )
+            time.sleep(0.25)
+            verify_static_body(
+                client,
+                args.stability_samples,
+                args.stability_interval,
+                args.stable_from_row,
+            )
             return
         bindings = (SEMANTIC_BINDINGS if args.semantic_states else
                     (args.semantic_state,) if args.semantic_state else (None,))

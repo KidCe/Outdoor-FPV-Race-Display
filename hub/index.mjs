@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -20,6 +20,12 @@ const ADMIN_ASSETS = new Map([
   ['/admin.html', [new URL('./admin.html', import.meta.url), 'text/html; charset=utf-8']],
   ['/admin.js', [new URL('./admin.js', import.meta.url), 'application/javascript; charset=utf-8']],
   ['/admin.css', [new URL('./admin.css', import.meta.url), 'text/css; charset=utf-8']]
+]);
+const SIMULATOR_ASSETS = new Map([
+  ['/simulator', [new URL('./simulator.html', import.meta.url), 'text/html; charset=utf-8']],
+  ['/simulator.html', [new URL('./simulator.html', import.meta.url), 'text/html; charset=utf-8']],
+  ['/simulator.js', [new URL('./simulator.js', import.meta.url), 'application/javascript; charset=utf-8']],
+  ['/simulator.css', [new URL('./simulator.css', import.meta.url), 'text/css; charset=utf-8']]
 ]);
 const clone = value => structuredClone(value);
 const defaultClock = () => new Date();
@@ -103,13 +109,14 @@ export function validateAnnouncement(announcement) {
 }
 
 function validatePilot(value, path, errors) {
-  if (!checkKeys(value, new Set(['id', 'sourceId', 'callsign', 'slot', 'open', 'bumpUp', 'match', 'video']), path, errors)) return;
+  if (!checkKeys(value, new Set(['id', 'sourceId', 'callsign', 'slot', 'open', 'bumpUp', 'match', 'video', 'timing']), path, errors)) return;
   requiredString(value.id, `${path}.id`, errors, { id: true, max: 128 });
   optionalString(value.sourceId, `${path}.sourceId`, errors, { id: true, max: 128 });
   requiredString(value.callsign, `${path}.callsign`, errors, { max: 80 });
   if (value.slot !== undefined && (!Number.isInteger(value.slot) || value.slot < 1)) errors.push(`${path}.slot must be a positive integer`);
   if (value.open !== undefined && typeof value.open !== 'boolean') errors.push(`${path}.open must be boolean`);
   if (value.bumpUp !== undefined && typeof value.bumpUp !== 'boolean') errors.push(`${path}.bumpUp must be boolean`);
+  if (value.timing !== undefined && value.timing !== null) validatePilotTiming(value.timing, `${path}.timing`, errors);
   if (value.match !== undefined) {
     if (checkKeys(value.match, new Set(['method', 'confidence']), `${path}.match`, errors)) {
       enumValue(value.match.method, new Set(['source_id', 'callsign', 'alias', 'manual', 'unmatched']), `${path}.match.method`, errors);
@@ -124,6 +131,14 @@ function validatePilot(value, path, errors) {
       if (value.video.frequencyMHz !== undefined && (typeof value.video.frequencyMHz !== 'number' || !Number.isFinite(value.video.frequencyMHz) || value.video.frequencyMHz <= 0)) errors.push(`${path}.video.frequencyMHz must be positive`);
     }
   }
+}
+
+function validatePilotTiming(value, path, errors) {
+  if (!checkKeys(value, new Set(['position', 'laps', 'lapTime', 'elapsedTime', 'fastestLap', 'averageLap', 'behind', 'consistencyPercent']), path, errors)) return;
+  if (value.position !== undefined && (!Number.isInteger(value.position) || value.position < 1)) errors.push(`${path}.position must be a positive integer`);
+  if (value.laps !== undefined && (!Number.isInteger(value.laps) || value.laps < 0)) errors.push(`${path}.laps must be a non-negative integer`);
+  for (const key of ['lapTime', 'elapsedTime', 'fastestLap', 'averageLap', 'behind']) optionalString(value[key], `${path}.${key}`, errors, { max: 40 });
+  if (value.consistencyPercent !== undefined && (typeof value.consistencyPercent !== 'number' || !Number.isFinite(value.consistencyPercent) || value.consistencyPercent < 0 || value.consistencyPercent > 100)) errors.push(`${path}.consistencyPercent must be between 0 and 100`);
 }
 
 function validateTiming(value, path, errors) {
@@ -247,7 +262,7 @@ export class SourceObservation {
 function asObservation(value) { return value instanceof SourceObservation ? value : (isObject(value) && value.format === FORMAT ? new SourceObservation({ snapshot: value }) : new SourceObservation(value ?? {})); }
 
 function matchPilot(pilot, prior, used) { const index = prior.findIndex((candidate, position) => !used.has(position) && ((pilot.id && candidate.id === pilot.id) || (pilot.sourceId && candidate.sourceId === pilot.sourceId) || (pilot.slot !== undefined && candidate.slot === pilot.slot) || (pilot.callsign && candidate.callsign === pilot.callsign))); if (index < 0) return null; used.add(index); return prior[index]; }
-function mergePilots(pilots, prior = []) { if (!Array.isArray(pilots) || pilots.length === 0) return clone(prior); const used = new Set(); return pilots.map(pilot => { const previous = matchPilot(pilot, prior, used); if (!previous) return clone(pilot); const merged = { ...previous, ...pilot }; if (!Object.prototype.hasOwnProperty.call(pilot, 'video')) merged.video = previous.video; if (!Object.prototype.hasOwnProperty.call(pilot, 'match')) merged.match = previous.match; return merged; }); }
+function mergePilots(pilots, prior = []) { if (!Array.isArray(pilots) || pilots.length === 0) return clone(prior); const used = new Set(); return pilots.map(pilot => { const previous = matchPilot(pilot, prior, used); if (!previous) return clone(pilot); const merged = { ...previous, ...pilot }; if (!Object.prototype.hasOwnProperty.call(pilot, 'video')) merged.video = previous.video; if (!Object.prototype.hasOwnProperty.call(pilot, 'match')) merged.match = previous.match; if (pilot.timing && previous.timing) merged.timing = { ...previous.timing, ...pilot.timing }; return merged; }); }
 function raceScopeField(value) {
   const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
   const qualifier = normalized.match(/^(?:q|qualifier round)\s*(\d+)$/);
@@ -379,37 +394,38 @@ export class RaceDataHub {
 function json(response, body, status = 200) { response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(body)); }
 function sendSse(response, event) { response.write(`id: ${event.streamSequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`); }
 function errorBody(error) { return { error: error instanceof Error ? error.message : 'request failed' }; }
-function authorized(request, expected) { if (typeof expected !== 'string' || expected.length === 0) return false; const supplied = request.headers['x-event-write-password']; if (typeof supplied !== 'string') return false; const left = Buffer.from(supplied); const right = Buffer.from(expected); return left.length === right.length && timingSafeEqual(left, right); }
 async function requestJson(request, maxBytes = 64 * 1024) { const chunks = []; let size = 0; for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw new Error('request body is too large'); chunks.push(chunk); } try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new Error('request body is not valid JSON'); } }
 async function asset(response, file, contentType) { try { response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' }); response.end(await readFile(file)); } catch { json(response, { error: 'not_found' }, 404); } }
 
-export function createHubServer({ store, status = () => store.getStatus(), writePassword = null, heartbeatMs = 15000, configureSource = null, enableTestSnapshotInjection = false } = {}) {
+export function createHubServer({ store, status = () => store.getStatus(), heartbeatMs = 15000, configureSource = null, enableTestSnapshotInjection = false } = {}) {
   if (!store) throw new Error('createHubServer requires a TrustedStore');
   const server = createServer((request, response) => { void handleRequest(request, response); });
   const timer = heartbeatMs > 0 ? setInterval(() => store.heartbeat(), heartbeatMs) : null; timer?.unref?.(); server.on('close', () => { if (timer) clearInterval(timer); });
   async function handleRequest(request, response) {
-    response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', 'accept, content-type, last-event-id, x-hub-epoch, x-event-session-id, x-event-write-password'); response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', 'accept, content-type, last-event-id, x-hub-epoch, x-event-session-id'); response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
     const url = new URL(request.url, 'http://localhost');
     try {
       if (request.method === 'GET' && ADMIN_ASSETS.has(url.pathname)) { const [file, contentType] = ADMIN_ASSETS.get(url.pathname); return asset(response, file, contentType); }
+      if (request.method === 'GET' && SIMULATOR_ASSETS.has(url.pathname)) {
+        if (!enableTestSnapshotInjection) return json(response, { error: 'not_found' }, 404);
+        const [file, contentType] = SIMULATOR_ASSETS.get(url.pathname); return asset(response, file, contentType);
+      }
       if (request.method === 'GET' && url.pathname === '/api/v1/health') return json(response, { ok: true, hubEpoch: store.hubEpoch });
       if (request.method === 'GET' && url.pathname === '/api/v1/status') return json(response, typeof status === 'function' ? status() : store.getStatus());
       if (request.method === 'GET' && url.pathname === '/api/v1/snapshot') return store.snapshot ? json(response, store.snapshot) : json(response, { error: 'no_active_event' }, 404);
       if (request.method === 'GET' && url.pathname === '/api/v1/announcements/history') return store.active ? json(response, store.getAnnouncementHistory({ cursor: url.searchParams.get('cursor'), limit: url.searchParams.get('limit') })) : json(response, { error: 'no_active_event' }, 404);
       if (request.method === 'GET' && url.pathname === '/api/v1/stream') return stream(request, response, url);
       if (request.method === 'POST' && url.pathname === '/api/v1/admin/source') {
-        if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401);
         if (typeof configureSource !== 'function') throw new Error('source configuration is not available');
         const input = await requestJson(request);
         if (!isObject(input) || typeof input.sourceUrl !== 'string' || input.sourceUrl.trim() === '') throw new Error('sourceUrl is required');
         const result = await configureSource(input.sourceUrl.trim());
         return json(response, { sourceUrl: result.sourceUrl, status: result.status, snapshot: result.snapshot });
       }
-      if (request.method === 'POST' && url.pathname === '/api/v1/admin/metadata') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const input = await requestJson(request); if (!isObject(input) || !validIdentifier(input.eventSessionId)) throw new Error('eventSessionId is required'); if (!isObject(input.event)) throw new Error('event is required'); const event = store.overrideEventMetadata({ eventSessionId: input.eventSessionId, event: input.event }); return json(response, { event, status: store.getStatus(), snapshot: store.snapshot }); }
+      if (request.method === 'POST' && url.pathname === '/api/v1/admin/metadata') { const input = await requestJson(request); if (!isObject(input) || !validIdentifier(input.eventSessionId)) throw new Error('eventSessionId is required'); if (!isObject(input.event)) throw new Error('event is required'); const event = store.overrideEventMetadata({ eventSessionId: input.eventSessionId, event: input.event }); return json(response, { event, status: store.getStatus(), snapshot: store.snapshot }); }
       if (request.method === 'POST' && url.pathname === '/api/v1/test/snapshot') {
         if (!enableTestSnapshotInjection) return json(response, { error: 'not_found' }, 404);
-        if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401);
         const snapshot = await requestJson(request);
         const validation = validateSnapshot(snapshot);
         if (!validation.valid) throw new Error(`test snapshot rejected: ${validation.errors.join(', ')}`);
@@ -418,11 +434,11 @@ export function createHubServer({ store, status = () => store.getStatus(), write
         store.publish(snapshot);
         return json(response, { accepted: true, snapshot: store.snapshot, status: store.getStatus() });
       }
-      if (request.method === 'POST' && url.pathname === '/api/v1/admin/event') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const input = await requestJson(request); if (!isObject(input) || !validIdentifier(input.eventSessionId)) throw new Error('eventSessionId is required'); if (input.event !== undefined && input.event !== null && !isObject(input.event)) throw new Error('event must be an object'); store.selectEvent({ eventSessionId: input.eventSessionId, event: input.event ?? null }); return json(response, { activeEvent: input.eventSessionId, status: store.getStatus() }); }
-      if (request.method === 'POST' && url.pathname === '/api/v1/admin/event/deactivate') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); await requestJson(request); store.deactivateEvent(); return json(response, { activeEvent: null, status: store.getStatus() }); }
-      if (request.method === 'POST' && url.pathname === '/api/v1/announcements') { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const announcement = store.createAnnouncement(await requestJson(request)); return json(response, announcement, 201); }
+      if (request.method === 'POST' && url.pathname === '/api/v1/admin/event') { const input = await requestJson(request); if (!isObject(input) || !validIdentifier(input.eventSessionId)) throw new Error('eventSessionId is required'); if (input.event !== undefined && input.event !== null && !isObject(input.event)) throw new Error('event must be an object'); store.selectEvent({ eventSessionId: input.eventSessionId, event: input.event ?? null }); return json(response, { activeEvent: input.eventSessionId, status: store.getStatus() }); }
+      if (request.method === 'POST' && url.pathname === '/api/v1/admin/event/deactivate') { await requestJson(request); store.deactivateEvent(); return json(response, { activeEvent: null, status: store.getStatus() }); }
+      if (request.method === 'POST' && url.pathname === '/api/v1/announcements') { const announcement = store.createAnnouncement(await requestJson(request)); return json(response, announcement, 201); }
       const clearMatch = request.method === 'POST' ? url.pathname.match(/^\/api\/v1\/announcements\/([^/]+)\/clear$/) : null;
-      if (clearMatch) { if (!authorized(request, writePassword)) return json(response, { error: 'write authorization required' }, 401); const cleared = store.clearAnnouncement(decodeURIComponent(clearMatch[1])); return json(response, cleared); }
+      if (clearMatch) { const cleared = store.clearAnnouncement(decodeURIComponent(clearMatch[1])); return json(response, cleared); }
       return json(response, { error: 'not_found' }, 404);
     } catch (error) { return json(response, errorBody(error), error.message === 'no active event' || error.message === 'announcement not found' ? 404 : 400); }
   }

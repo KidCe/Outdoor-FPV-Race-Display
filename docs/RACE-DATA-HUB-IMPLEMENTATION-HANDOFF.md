@@ -82,7 +82,7 @@ LiveFPV values are valid even when they are less precise or slightly delayed tha
 - A race host or manager manually starts one central LAN hub for the event.
 - The hub binds to the LAN only when explicitly started in LAN mode.
 - LAN consumers receive snapshots, status, streams, and announcements.
-- LAN devices may create announcements after entering the shared event write password.
+- Trusted race-LAN devices may create announcements directly through the local Hub admin.
 - The event LAN is treated as a trusted operational network.
 
 #### Relay mode
@@ -173,7 +173,7 @@ POST /api/v1/announcements
 POST /api/v1/announcements/{announcementId}/clear
 ```
 
-The write endpoints are available to trusted event-LAN clients after the shared event write password is supplied. Relay consumers receive read access only in v1.
+The write endpoints are available directly to trusted event-LAN clients. Relay consumers receive read access only in v1.
 
 ### Health and status
 
@@ -377,7 +377,7 @@ Owns:
 - HTTP endpoints;
 - SSE stream;
 - bootstrap and history responses;
-- LAN write-password handling;
+- explicit trusted-LAN write boundaries;
 - status and diagnostics;
 - independent Hub Admin UI;
 - local versus LAN binding modes.
@@ -431,7 +431,7 @@ Dependencies: Packages A, B, and D. Do not make Package G a prerequisite for loc
 5. Integrate Package E Bundled Mode and remote announcement handling.
 6. Integrate Package F with replay and local hub fixtures.
 7. Verify one local hub with multiple consumers.
-8. Add explicit LAN mode and shared write password.
+8. Add explicit trusted-LAN mode for local admin writes.
 9. Implement Package G relay behavior.
 10. Add future RaceVision observations without changing consumer interfaces.
 
@@ -456,7 +456,7 @@ The implementation is not complete until these scenarios pass:
 - Bundled Mode local data with remote announcements;
 - local/remote event mismatch warning;
 - remote hub outage while local data continues;
-- LAN write-password enforcement;
+- trusted-LAN write behavior;
 - relay invite token expiry after session end or 14 days;
 - relay bootstrap, reconnect, and 14-day announcement history;
 - slow-consumer backpressure and bounded queues.

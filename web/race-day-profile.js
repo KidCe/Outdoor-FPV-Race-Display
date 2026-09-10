@@ -43,8 +43,7 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
     wledUrl: "http://192.168.0.201/",
     serialBaud: 115200,
     schemaId: "fpv-race-80x80-v2",
-    brightness: 50,
-    backgroundEffect: 0
+    brightness: 50
   },
   display: {
     width: 80,
@@ -57,7 +56,6 @@ export const DEFAULT_RACE_DAY_PROFILE = Object.freeze({
     channelGap: 1,
     pilotWidth: 15,
     completedMarker: "checkerboard",
-    backgroundColor: "#000000",
     pilotTextColor: "#ffffff",
     presets: DEFAULT_PRESETS,
     channelColors: DEFAULT_CHANNEL_COLORS
@@ -115,7 +113,6 @@ export function migrateLegacyProfile(storage) {
       migrated.output.serialBaud = Number(display.serialBaud) || migrated.output.serialBaud;
       migrated.output.schemaId = display.schemaId || migrated.output.schemaId;
       migrated.output.brightness = Number(display.displayBrightness ?? migrated.output.brightness);
-      migrated.output.backgroundEffect = Number(display.backgroundEffect ?? migrated.output.backgroundEffect);
       migrated.output.enabled = Boolean(display.outputEnabled);
       migrated.output.live = Boolean(display.liveSend);
       const current = migrated.display.presets.current;
@@ -124,7 +121,6 @@ export function migrateLegacyProfile(storage) {
       current.headerTextColor = display.headerColor || current.headerTextColor;
       current.headerFrameColor = display.headerColor || current.headerFrameColor;
       current.lineThickness = Number(display.headerFrameThickness) || current.lineThickness;
-      migrated.display.backgroundColor = display.backgroundColor || migrated.display.backgroundColor;
       migrated.display.rowGap = Number(display.gap ?? migrated.display.rowGap);
       migrated.display.headerGap = Number(display.headerGap ?? migrated.display.headerGap);
       for (let index = 0; index < 8; index += 1) {
@@ -156,7 +152,6 @@ export function validateRaceDayProfile(candidate) {
   profile.output.serialBaud = boundedNumber(profile.output.serialBaud, 115200, 9600, 921600);
   profile.output.schemaId = String(profile.output.schemaId || "fpv-race-80x80-v2").slice(0, 24);
   profile.output.brightness = boundedNumber(profile.output.brightness, 50, 0, 100);
-  profile.output.backgroundEffect = boundedNumber(profile.output.backgroundEffect, 0, 0, 25);
   profile.cycle.enabled = Boolean(profile.cycle.enabled);
   const candidateCycle = candidate.cycle && typeof candidate.cycle === "object" ? candidate.cycle : {};
   const legacyCycleSeconds = boundedNumber(candidateCycle.seconds, 5, 2, 60);
@@ -182,7 +177,6 @@ export function validateRaceDayProfile(candidate) {
   profile.display.channelGap = boundedNumber(profile.display.channelGap, 1, 0, 4);
   profile.display.pilotWidth = boundedNumber(profile.display.pilotWidth, 15, 4, 30);
   profile.display.completedMarker = "checkerboard";
-  profile.display.backgroundColor = validColor(profile.display.backgroundColor, "#000000");
   profile.display.pilotTextColor = validColor(profile.display.pilotTextColor, "#ffffff");
   for (const key of ["current", "staging", "next"]) {
     const preset = profile.display.presets[key];

@@ -213,7 +213,7 @@ test('Hub Admin exposes active race status separately from connection and qualit
   const base = await fixture('snapshot-fresh.json');
   const store = new TrustedStore({ epoch: 'admin-status-epoch' });
   const hub = new RaceDataHub({ source: { observe: async () => new SourceObservation({ snapshot: statusFrame(base, 'running', 8) }) }, store });
-  const server = createHubServer({ store, writePassword: 'manager-password', heartbeatMs: 0 });
+  const server = createHubServer({ store, heartbeatMs: 0 });
   const port = await listen(server);
   try {
     await hub.start({ eventSessionId: base.eventSessionId, event: base.event });
