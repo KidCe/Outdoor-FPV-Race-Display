@@ -104,4 +104,3 @@ race-day behavior remain unverified on hardware.
   issue is the extension of a frozen v1 contract without version negotiation.
 - Specification: five findings; two resolved and three partially resolved or
   open. The highest-risk open issue is the unresolved event-selection contract.
-
