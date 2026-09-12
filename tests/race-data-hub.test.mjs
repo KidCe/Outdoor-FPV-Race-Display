@@ -260,6 +260,34 @@ test('local Hub Admin surface serves diagnostics and allows local event control 
   }
 });
 
+test('Hub write routes reject untrusted browser origins and allow configured race-day clients', async () => {
+  const store = new TrustedStore({ epoch: 'write-origin-epoch' });
+  const server = createHubServer({ store, heartbeatMs: 0, allowedWriteOrigins: ['https://manager.example'] });
+  const port = await listen(server);
+  const endpoint = `http://127.0.0.1:${port}/api/v1/admin/event`;
+  const body = JSON.stringify({ eventSessionId: 'trusted-session', event: { id: 'trusted-event', name: 'Trusted Event' } });
+  try {
+    const denied = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://attacker.example' },
+      body
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(store.active, false);
+
+    const allowed = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://manager.example' },
+      body
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://manager.example');
+    assert.equal(store.active, true);
+  } finally {
+    await close(server);
+  }
+});
+
 test('Hub metadata override changes display metadata without changing source identity', async () => {
   const base = await fixture('snapshot-fresh.json');
   const store = new TrustedStore({ eventSessionId: base.eventSessionId });

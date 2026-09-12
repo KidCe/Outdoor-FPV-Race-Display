@@ -397,13 +397,30 @@ function errorBody(error) { return { error: error instanceof Error ? error.messa
 async function requestJson(request, maxBytes = 64 * 1024) { const chunks = []; let size = 0; for await (const chunk of request) { size += chunk.length; if (size > maxBytes) throw new Error('request body is too large'); chunks.push(chunk); } try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new Error('request body is not valid JSON'); } }
 async function asset(response, file, contentType) { try { response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' }); response.end(await readFile(file)); } catch { json(response, { error: 'not_found' }, 404); } }
 
-export function createHubServer({ store, status = () => store.getStatus(), heartbeatMs = 15000, configureSource = null, enableTestSnapshotInjection = false } = {}) {
+function writeOriginAllowed(request, allowedWriteOrigins) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    return parsed.host === request.headers.host || allowedWriteOrigins.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
+export function createHubServer({ store, status = () => store.getStatus(), heartbeatMs = 15000, configureSource = null, enableTestSnapshotInjection = false, allowedWriteOrigins = [] } = {}) {
   if (!store) throw new Error('createHubServer requires a TrustedStore');
+  const trustedWriteOrigins = new Set(allowedWriteOrigins.map(origin => new URL(origin).origin));
   const server = createServer((request, response) => { void handleRequest(request, response); });
   const timer = heartbeatMs > 0 ? setInterval(() => store.heartbeat(), heartbeatMs) : null; timer?.unref?.(); server.on('close', () => { if (timer) clearInterval(timer); });
   async function handleRequest(request, response) {
-    response.setHeader('Access-Control-Allow-Origin', '*'); response.setHeader('Access-Control-Allow-Headers', 'accept, content-type, last-event-id, x-hub-epoch, x-event-session-id'); response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
+    const writeRequest = request.method === 'POST' || (request.method === 'OPTIONS' && request.headers['access-control-request-method'] === 'POST');
+    const trustedWrite = !writeRequest || writeOriginAllowed(request, trustedWriteOrigins);
+    if (request.headers.origin && trustedWrite) response.setHeader('Access-Control-Allow-Origin', writeRequest ? request.headers.origin : '*');
+    response.setHeader('Vary', 'Origin'); response.setHeader('Access-Control-Allow-Headers', 'accept, content-type, last-event-id, x-hub-epoch, x-event-session-id'); response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (request.method === 'OPTIONS') { response.writeHead(trustedWrite ? 204 : 403); response.end(); return; }
+    if (!trustedWrite) return json(response, { error: 'write_origin_not_allowed' }, 403);
     const url = new URL(request.url, 'http://localhost');
     try {
       if (request.method === 'GET' && ADMIN_ASSETS.has(url.pathname)) { const [file, contentType] = ADMIN_ASSETS.get(url.pathname); return asset(response, file, contentType); }

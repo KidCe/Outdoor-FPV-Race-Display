@@ -8,6 +8,13 @@ import {
   SourceObservation,
   TrustedStore
 } from "./index.mjs";
+import {
+  buildConnectorSchedule,
+  findExplicitConnectorActiveIndex,
+  normalizeConnectorRaceStatus,
+  reconcileConnectorSnapshot,
+  selectConnectorCurrentIndex
+} from "./connector-race-state.mjs";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const DEFAULTS = Object.freeze({
@@ -16,14 +23,11 @@ const DEFAULTS = Object.freeze({
   connectorUrl: "http://127.0.0.1:4174",
   sourceUrl: "https://rotormaniacs.livefpv.com/live/",
   refreshMs: 15000,
-  statePath: resolve(root, "data/race-data-hub.json")
+  statePath: resolve(root, "data/race-data-hub.json"),
+  allowedWriteOrigins: ["http://127.0.0.1:4174", "http://localhost:4174"]
 });
 
 const compact = value => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
-const sourceStatus = value => {
-  const normalized = String(value || "unknown").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return ({ ready: "staging", racing: "running", completed: "complete", not_yet_run: "not_run", canceled: "cancelled", uncertain: "unknown" })[normalized] || normalized;
-};
 const safeId = (value, fallback) => {
   const normalized = String(value || fallback).trim().replace(/[^A-Za-z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "");
   return (normalized || fallback).slice(0, 128);
@@ -38,9 +42,13 @@ const parseWarnings = warnings => (Array.isArray(warnings) ? warnings : []).filt
   severity: "warning"
 }));
 
-const EXPLICIT_ACTIVE_STATUSES = new Set(["staging", "running"]);
-const TERMINAL_STATUSES = new Set(["complete", "cancelled"]);
-const NON_AUTHORITATIVE_STATUSES = new Set(["scheduled", "not_run", "unknown"]);
+function finiteSourceNumber(value, { integer = false, minimum = -Infinity, maximum = Infinity } = {}) {
+  if (value === null || value === undefined || value === "") return undefined;
+  const number = Number(value);
+  if (!Number.isFinite(number) || (integer && !Number.isInteger(number)) || number < minimum || number > maximum) return undefined;
+  return number;
+}
+
 const UNKNOWN_STATUS_WARNING = Object.freeze({
   code: "race.status_unknown",
   message: "The source did not provide an authoritative status for one or more heats.",
@@ -59,50 +67,20 @@ export function validateLiveFPVSourceUrl(value) {
   return url.href;
 }
 
-function explicitActiveSourceStatus(value) {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return normalized === "staging" || normalized === "running" || normalized === "racing";
-}
-
-function sourceStatusIsNonCurrent(value) {
-  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return normalized === "scheduled" || normalized === "not_run" || normalized === "not_yet_run";
-}
-
-function selectCurrentIndex(races, requestedIndex, { sourceRaces = [], hasExplicitCurrentId = false } = {}) {
-  const requestedRace = races[requestedIndex];
-  const requestedSourceRace = sourceRaces[requestedIndex];
-  if (explicitActiveSourceStatus(requestedSourceRace?.status)) return requestedIndex;
-
-  const runningIndex = races.findIndex((race, index) => race.status === "running" && explicitActiveSourceStatus(sourceRaces[index]?.status));
-  if (runningIndex >= 0) return runningIndex;
-  const stagingIndex = races.findIndex((race, index) => race.status === "staging" && explicitActiveSourceStatus(sourceRaces[index]?.status));
-  if (stagingIndex >= 0) return stagingIndex;
-
-  // Keep an explicitly supplied unknown pointer during a transient partial
-  // packet instead of moving the display to an older completed heat.
-  if (!hasExplicitCurrentId && requestedRace?.status === "unknown") return requestedIndex;
-
-  if (hasExplicitCurrentId && requestedRace && !sourceStatusIsNonCurrent(requestedSourceRace?.status)) return requestedIndex;
-
-  const completedIndex = races.reduce((latest, race, index) => race.status === "complete" ? index : latest, -1);
-  return completedIndex >= 0 ? completedIndex : requestedIndex;
-}
-
 function adaptPilot(driver, index) {
   const channel = String(driver.channel || driver.video?.channel || "").toUpperCase();
   const channelMatch = channel.match(/^([A-Z]+)(\d+)$/);
-  const frequency = Number(driver.frequency || driver.video?.frequencyMHz);
+  const frequency = finiteSourceNumber(driver.frequency || driver.video?.frequencyMHz, { minimum: Number.EPSILON });
   const sourceTiming = driver.timing || driver.live;
   const timing = sourceTiming ? compact({
-    position: Number.isInteger(Number(sourceTiming.position)) && Number(sourceTiming.position) > 0 ? Number(sourceTiming.position) : undefined,
-    laps: Number.isInteger(Number(sourceTiming.laps)) && Number(sourceTiming.laps) >= 0 ? Number(sourceTiming.laps) : undefined,
+    position: finiteSourceNumber(sourceTiming.position, { integer: true, minimum: 1 }),
+    laps: finiteSourceNumber(sourceTiming.laps, { integer: true, minimum: 0 }),
     lapTime: sourceTiming.lapTime == null || sourceTiming.lapTime === "" ? undefined : String(sourceTiming.lapTime).slice(0, 40),
     elapsedTime: sourceTiming.elapsedTime == null || sourceTiming.elapsedTime === "" ? undefined : String(sourceTiming.elapsedTime).slice(0, 40),
     fastestLap: sourceTiming.fastestLap == null || sourceTiming.fastestLap === "" ? undefined : String(sourceTiming.fastestLap).slice(0, 40),
     averageLap: sourceTiming.averageLap == null || sourceTiming.averageLap === "" ? undefined : String(sourceTiming.averageLap).slice(0, 40),
     behind: sourceTiming.behind == null || sourceTiming.behind === "" ? undefined : String(sourceTiming.behind).slice(0, 40),
-    consistencyPercent: Number.isFinite(Number(sourceTiming.consistencyPercent ?? sourceTiming.consistency)) ? Number(sourceTiming.consistencyPercent ?? sourceTiming.consistency) : undefined
+    consistencyPercent: finiteSourceNumber(sourceTiming.consistencyPercent ?? sourceTiming.consistency, { minimum: 0, maximum: 100 })
   }) : undefined;
   return compact({
     id: safeId(driver.id || driver.sourceId || driver.name, `pilot-${index + 1}`),
@@ -112,11 +90,11 @@ function adaptPilot(driver, index) {
     open: Boolean(driver.open),
     bumpUp: Boolean(driver.bumpUp),
     timing: timing && Object.keys(timing).length ? timing : undefined,
-    video: channel || Number.isFinite(frequency) ? compact({
+    video: channel || frequency !== undefined ? compact({
       channel: channel || undefined,
       band: channelMatch?.[1],
       number: channelMatch ? Number(channelMatch[2]) : undefined,
-      frequencyMHz: Number.isInteger(frequency) ? frequency : undefined
+      frequencyMHz: frequency
     }) : undefined
   });
 }
@@ -126,24 +104,17 @@ function adaptRace(race, index) {
   const pilots = Array.isArray(race.drivers) ? race.drivers : Array.isArray(race.pilots) ? race.pilots : [];
   return compact({
     id: safeId(race.id, `race-${index + 1}`),
+    runId: race.runId === null ? null : race.runId ? safeId(race.runId, `race-${index + 1}-run`) : undefined,
+    attempt: finiteSourceNumber(race.attempt, { integer: true, minimum: 1 }),
     order: index,
     label: String(race.label || `Race ${index + 1}`).slice(0, 200),
     phase: race.phase ? String(race.phase).slice(0, 120) : "Event",
     round: race.round ? String(race.round).slice(0, 120) : undefined,
     heat: parseHeat(race.label),
-    status: sourceStatus(race.status),
+    status: normalizeConnectorRaceStatus(race.status),
     links: Object.keys(links).length ? links : undefined,
     pilots: pilots.map(adaptPilot)
   });
-}
-
-function buildSchedule(races, currentIndex) {
-  return {
-    currentRaceId: races[currentIndex]?.id ?? null,
-    currentIndex,
-    nextRaceIds: races.slice(currentIndex + 1, currentIndex + 3).map(race => race.id),
-    afterNextRaceIds: races.slice(currentIndex + 3, currentIndex + 6).map(race => race.id)
-  };
 }
 
 export function adaptConnectorSnapshot(input, { sourceUrl = DEFAULTS.sourceUrl, deliveredAt = new Date().toISOString() } = {}) {
@@ -161,9 +132,9 @@ export function adaptConnectorSnapshot(input, { sourceUrl = DEFAULTS.sourceUrl, 
     ? input.schedule.currentIndex
     : Number.isInteger(input.currentIndex)
       ? input.currentIndex
-      : Math.max(0, input.races.findIndex(race => explicitActiveSourceStatus(race.status)));
+      : Math.max(0, findExplicitConnectorActiveIndex(input.races));
   const boundedRequestedIndex = Math.min(Math.max(requestedIndex, 0), races.length - 1);
-  const currentIndex = selectCurrentIndex(races, boundedRequestedIndex, { sourceRaces: input.races, hasExplicitCurrentId });
+  const currentIndex = selectConnectorCurrentIndex(races, boundedRequestedIndex, { sourceRaces: input.races, hasExplicitCurrentId });
   const currentRaceId = races[currentIndex]?.id ?? null;
   const eventId = safeId(input.event.id, "livefpv-event");
   const eventSessionId = safeId(input.eventSessionId || `livefpv-${eventId}`, `livefpv-${eventId}`);
@@ -195,7 +166,7 @@ export function adaptConnectorSnapshot(input, { sourceUrl = DEFAULTS.sourceUrl, 
       capturedAt,
       confidence: qualityState === "fresh" ? "high" : "medium"
     }],
-    schedule: buildSchedule(races, currentIndex),
+    schedule: buildConnectorSchedule(races, currentIndex),
     races,
     quality: {
       state: qualityState,
@@ -205,67 +176,6 @@ export function adaptConnectorSnapshot(input, { sourceUrl = DEFAULTS.sourceUrl, 
     },
     activeAnnouncements: []
   };
-}
-
-export function reconcileConnectorSnapshot(previous, candidate) {
-  if (!previous || !candidate || previous.eventSessionId !== candidate.eventSessionId || previous.event?.id !== candidate.event?.id) return candidate;
-  const previousIndex = previous.schedule?.currentIndex;
-  const candidateIndex = candidate.schedule?.currentIndex;
-  const previousRace = previous.races?.[previousIndex];
-  const candidateRace = candidate.races?.[candidateIndex];
-
-  const shouldPreserveUnknown = previousRace && candidateRace?.status === "unknown" && previousRace.status !== "unknown";
-  const shouldPreserveActiveHeat = previousRace && candidateRace?.id === previousRace.id
-    && EXPLICIT_ACTIVE_STATUSES.has(previousRace.status)
-    && NON_AUTHORITATIVE_STATUSES.has(candidateRace.status);
-  if (shouldPreserveUnknown || shouldPreserveActiveHeat) {
-    const retainedIndex = candidate.races.findIndex(race => race.id === previous.schedule?.currentRaceId);
-    if (retainedIndex >= 0) {
-      const races = candidate.races.map((race, index) => index === retainedIndex
-        ? { ...structuredClone(race), status: previousRace.status }
-        : race);
-      const warnings = [...(candidate.quality?.warnings || [])];
-      const warning = shouldPreserveUnknown
-        ? { code: "race.status_unknown_preserved", message: "The source omitted the current heat status; the last trusted status is being retained.", severity: "warning" }
-        : { code: "race.status_non_authoritative_preserved", message: "A static source snapshot downgraded the active heat without an authoritative transition; the last trusted status is being retained.", severity: "warning" };
-      if (!warnings.some(item => item.code === warning.code)) warnings.push(warning);
-      const domains = Object.fromEntries(Object.entries(candidate.quality?.domains || {}).map(([key, domain]) => [
-        key,
-        key === "schedule" ? { ...domain, state: "degraded", reason: "unknown_status_preserved" } : domain
-      ]));
-      return {
-        ...candidate,
-        races,
-        schedule: buildSchedule(races, retainedIndex),
-        quality: { ...candidate.quality, state: candidate.quality?.state === "stale" ? "stale" : "degraded", warnings, domains }
-      };
-    }
-  }
-
-  if (!Number.isInteger(previousIndex) || !Number.isInteger(candidateIndex) || candidateIndex >= previousIndex) return candidate;
-
-  const previousStatus = previousRace?.status;
-  const candidateStatus = candidateRace?.status;
-  if (EXPLICIT_ACTIVE_STATUSES.has(previousStatus) && !EXPLICIT_ACTIVE_STATUSES.has(candidateStatus)) {
-    const retainedIndex = candidate.races.findIndex(race => race.id === previous.schedule?.currentRaceId);
-    if (retainedIndex >= 0) {
-      const races = candidate.races.map((race, index) => index === retainedIndex ? structuredClone(previousRace) : race);
-      return { ...candidate, races, schedule: buildSchedule(races, retainedIndex) };
-    }
-  }
-  const laterRaces = (candidate.races?.slice(candidateIndex + 1) || []).filter(race => sameRaceGroup(race, candidateRace));
-  const hasUnfinishedLaterRace = laterRaces.some(race => !TERMINAL_STATUSES.has(race?.status));
-  if (!TERMINAL_STATUSES.has(previousStatus) || !sameRaceGroup(previousRace, candidateRace) || EXPLICIT_ACTIVE_STATUSES.has(candidateStatus) || hasUnfinishedLaterRace) return candidate;
-
-  const retainedIndex = candidate.races.findIndex(race => race.id === previous.schedule?.currentRaceId);
-  if (retainedIndex < 0) return candidate;
-  return { ...candidate, schedule: buildSchedule(candidate.races, retainedIndex) };
-}
-
-function sameRaceGroup(left, right) {
-  const leftRound = String(left?.round || "").trim().toLowerCase();
-  const rightRound = String(right?.round || "").trim().toLowerCase();
-  return !leftRound || !rightRound || leftRound === rightRound;
 }
 
 async function readJson(fetchImpl, url, signal) {
@@ -278,7 +188,7 @@ export class LiveTimeQueHubSource {
   constructor({ connectorUrl = DEFAULTS.connectorUrl, sourceUrl = DEFAULTS.sourceUrl, fetchImpl = globalThis.fetch } = {}) {
     this.connectorUrl = connectorUrl.replace(/\/$/, "");
     this.sourceUrl = validateLiveFPVSourceUrl(sourceUrl);
-    this.fetch = fetchImpl;
+    this.fetch = typeof fetchImpl === "function" ? fetchImpl.bind(globalThis) : fetchImpl;
   }
 
   configure(sourceUrl) {
@@ -357,6 +267,7 @@ export class RaceHubRuntime {
     refreshMs = Number(process.env.FPV_HUB_REFRESH_MS || DEFAULTS.refreshMs),
     statePath = process.env.FPV_HUB_STATE_PATH || DEFAULTS.statePath,
     enableTestSnapshotInjection = process.env.FPV_HUB_ENABLE_TEST_SNAPSHOT_INJECTION === "1",
+    allowedWriteOrigins = (process.env.FPV_HUB_ALLOWED_WRITE_ORIGINS || DEFAULTS.allowedWriteOrigins.join(",")).split(",").map(value => value.trim()).filter(Boolean),
     fetchImpl = globalThis.fetch
   } = {}) {
     this.host = host;
@@ -364,7 +275,7 @@ export class RaceHubRuntime {
     this.source = new LiveTimeQueHubSource({ connectorUrl, sourceUrl, fetchImpl });
     this.store = new TrustedStore({ persistencePath: statePath });
     this.hub = new RaceDataHub({ source: this.source, store: this.store });
-    this.server = createHubServer({ store: this.store, configureSource: sourceUrl => this.configureSource(sourceUrl), enableTestSnapshotInjection });
+    this.server = createHubServer({ store: this.store, configureSource: sourceUrl => this.configureSource(sourceUrl), enableTestSnapshotInjection, allowedWriteOrigins });
     this.refreshMs = Math.max(5000, refreshMs);
     this.pollTimer = null;
     this.streamAbort = null;
@@ -463,7 +374,7 @@ export class RaceHubRuntime {
   }
 
   async start() {
-    await mkdir(dirname(this.store.persistencePath), { recursive: true });
+    if (this.store.persistencePath) await mkdir(dirname(this.store.persistencePath), { recursive: true });
     await this.store.restore();
     const restoredSourceUrl = this.store.snapshot?.event?.sourceUrl || this.store.trustedSnapshot?.event?.sourceUrl;
     if (restoredSourceUrl) {

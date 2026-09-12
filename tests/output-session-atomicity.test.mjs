@@ -330,7 +330,11 @@ test("OutputSession retries an idempotent frame start when a USB reply is lost",
   output.sendCommand = async op => {
     if (op === "frame.begin") {
       beginAttempts += 1;
-      if (beginAttempts === 1) throw new Error("frame.begin timed out.");
+      if (beginAttempts === 1) {
+        const error = new Error("frame.begin timed out.");
+        error.retryable = true;
+        throw error;
+      }
       return { capture: 9, ready: true, width: 1, height: 1, total: 1, lit: 1, checksum: 1456420779 };
     }
     if (op === "frame.chunk") return { offset: 0, data: "AQID", count: 1 };

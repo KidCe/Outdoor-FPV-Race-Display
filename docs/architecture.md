@@ -9,6 +9,9 @@ The race-day UI is composed by `RaceDayAppHost`. It is deliberately small: it wi
 - `OutputSession` owns USB/WebSocket connection state, protocol correlation, bounded reconnects, schema reconciliation, chunked state updates, deactivation, and pixel readback. USB serial and WLED WebSocket are internal adapters behind the same interface.
 - `RaceDayProfile` owns the versioned portable configuration, defaults, validation, migration from the former DOM-shaped local storage, import/export, three semantic display presets, and channel colors. Browser device authorization is not stored.
 - `RaceDayRuntime` is the small local composition root. It serves one canonical WebUI origin, proxies the connector through the same origin, and starts a configured or neighboring LiveTimeQue connector when one is not already running. `FPV_CONNECTOR_URL` and `LIVETIME_QUE_ROOT` keep deployment replaceable.
+- `connector-race-state.mjs` is the Hub-side connector state module. Its small interface normalizes source statuses, selects the authoritative current heat, builds the queue schedule, and reconciles lagging static polls without coupling those rules to HTTP or process lifecycle code.
+
+Hub reads remain available to consumers through CORS. Browser writes require either the Hub's own origin or an explicit `FPV_HUB_ALLOWED_WRITE_ORIGINS` entry, so a random website cannot drive the trusted-LAN admin routes through the operator's browser.
 
 The modules are tested through their interfaces. Deleting any one would spread its lifecycle or invariants back into the page, so each passes the deletion test and provides locality and leverage.
 

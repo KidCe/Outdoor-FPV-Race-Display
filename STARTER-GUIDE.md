@@ -27,7 +27,7 @@ The existing **Start Race Display.cmd** is the display-only fallback. **Start Ra
 
 For software-only testing, double-click **Start Race Simulator.cmd** instead. It starts the local Fixture Hub and opens the simulator at `http://127.0.0.1:4175/simulator` together with the Control Desk and LiveTimeQue. This fixture mode does not contact a live event. The simulator page lets you select a heat, set **Staging**, **Running**, **Complete**, or **Not run**, set the Next Up status, and advance to the next heat. Use **Reset to first heat** to return to a known starting state. The simulator is intentionally available only on the Fixture Hub; it is not part of a normal production Hub.
 
-The local Hub currently uses `https://rotormaniacs.livefpv.com/live/` as its default upstream event and stores trusted state in `data/race-data-hub.json`. To use another event, set `FPV_HUB_SOURCE_URL` before starting the Hub or accept a new URL in Hub Admin. Admin actions are available directly on the trusted local race network and do not require a separate password.
+The local Hub currently uses `https://rotormaniacs.livefpv.com/live/` as its default upstream event and stores trusted state in `data/race-data-hub.json`. To use another event, set `FPV_HUB_SOURCE_URL` before starting the Hub or accept a new URL in Hub Admin. Admin actions are available directly on the trusted local race network and do not require a separate password. Browser writes are accepted only from the Hub's own origin and the configured race-day clients; add extra origins as a comma-separated `FPV_HUB_ALLOWED_WRITE_ORIGINS` value when a separate trusted LAN UI needs write access.
 
 ## 2. Use the central Hub
 

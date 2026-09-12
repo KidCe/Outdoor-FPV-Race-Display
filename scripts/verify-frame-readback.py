@@ -192,7 +192,7 @@ def semantic_values(active_binding):
     return TEST_VALUES + frame_values
 
 
-def apply_state(client, schema_id, schema_hash, values, background_effect=0):
+def apply_state(client, schema_id, schema_hash, values):
     transaction = transaction_id()
     chunks = [values[offset:offset + 8] for offset in range(0, len(values), 8)]
     for index, chunk in enumerate(chunks):
@@ -205,7 +205,7 @@ def apply_state(client, schema_id, schema_hash, values, background_effect=0):
             "values": chunk,
         }
         if index == 0:
-            fields.update(brightness=50, backgroundEffect=background_effect)
+            fields.update(brightness=50)
         client.command("state", **fields)
 
 
@@ -247,8 +247,7 @@ def verify_atomic_update(client, schema_id, schema_hash):
     chunks = [changed_values[offset:offset + 8] for offset in range(0, len(changed_values), 8)]
     transaction = transaction_id()
     client.command("state", schema=schema_id, hash=schema_hash, tx=transaction,
-                   replace=True, commit=False, brightness=25, backgroundEffect=0,
-                   values=chunks[0])
+                   replace=True, commit=False, brightness=25, values=chunks[0])
     time.sleep(0.2)
     staged, staged_pixels = capture_rows(client, "output", sample_rows)
     for index, chunk in enumerate(chunks[1:], start=1):
@@ -289,7 +288,6 @@ def main():
     parser.add_argument("--stability-samples", type=int, default=0)
     parser.add_argument("--stability-interval", type=float, default=0.25)
     parser.add_argument("--stable-from-row", type=int, default=20)
-    parser.add_argument("--background-effect", type=int, default=0)
     args = parser.parse_args()
 
     client, close = (websocket_client(args.url) if args.transport == "websocket"
@@ -314,7 +312,6 @@ def main():
                 schema_id,
                 schema_hash,
                 first_values,
-                args.background_effect,
             )
             time.sleep(1.2)
 
@@ -335,7 +332,6 @@ def main():
                 schema_id,
                 schema_hash,
                 second_values,
-                args.background_effect,
             )
             time.sleep(0.25)
             verify_static_body(

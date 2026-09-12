@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { adaptConnectorSnapshot, LiveTimeQueHubSource, RaceHubRuntime, reconcileConnectorSnapshot, validateLiveFPVSourceUrl } from "../hub/local-server.mjs";
+import { adaptConnectorSnapshot, LiveTimeQueHubSource, RaceHubRuntime, validateLiveFPVSourceUrl } from "../hub/local-server.mjs";
+import { reconcileConnectorSnapshot } from "../hub/connector-race-state.mjs";
 import { validateSnapshot } from "../hub/index.mjs";
 
 const sourceSnapshot = {
@@ -39,10 +40,53 @@ test("local Hub maps an uncertain connector status to canonical unknown", () => 
   assert.deepEqual(validateSnapshot(snapshot), { valid: true, errors: [] });
 });
 
+test("local Hub maps unsupported connector statuses to unknown instead of rejecting the snapshot", () => {
+  const input = structuredClone(sourceSnapshot);
+  input.races[1].status = "awaiting marshal";
+
+  const snapshot = adaptConnectorSnapshot(input);
+
+  assert.equal(snapshot.races[1].status, "unknown");
+  assert.equal(snapshot.quality.state, "degraded");
+  assert.deepEqual(validateSnapshot(snapshot), { valid: true, errors: [] });
+});
+
+test("local Hub omits blank source timing and preserves explicit rerun identity", () => {
+  const input = structuredClone(sourceSnapshot);
+  input.races[1].runId = "race-2-run-2";
+  input.races[1].attempt = 2;
+  input.races[1].pilots[0].timing = { position: "", laps: "", consistencyPercent: "" };
+
+  const snapshot = adaptConnectorSnapshot(input);
+
+  assert.equal(snapshot.races[1].runId, "race-2-run-2");
+  assert.equal(snapshot.races[1].attempt, 2);
+  assert.equal(snapshot.races[1].pilots[0].timing, undefined);
+  assert.deepEqual(validateSnapshot(snapshot), { valid: true, errors: [] });
+});
+
 test("Hub source builds the connector snapshot and stream endpoints from one configuration", () => {
   const source = new LiveTimeQueHubSource({ connectorUrl: "http://127.0.0.1:4174/", sourceUrl: "https://example.livefpv.com/" });
   assert.equal(source.snapshotUrl().href, "http://127.0.0.1:4174/api/connectors/race-event/v1/snapshot?sourceUrl=https%3A%2F%2Fexample.livefpv.com%2F&force=1");
   assert.equal(source.streamUrl().href, "http://127.0.0.1:4174/api/connectors/race-event/v1/stream?sourceUrl=https%3A%2F%2Fexample.livefpv.com%2F");
+});
+
+test("Hub source preserves the native fetch receiver", async () => {
+  let receiver;
+  const source = new LiveTimeQueHubSource({
+    connectorUrl: "http://127.0.0.1:4174/",
+    sourceUrl: "https://example.livefpv.com/",
+    fetchImpl: async function () {
+      receiver = this;
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return { ok: true, async json() { return structuredClone(sourceSnapshot); } };
+    }
+  });
+
+  const observation = await source.observe();
+
+  assert.equal(receiver, globalThis);
+  assert.equal(observation.snapshot.event.id, "event-1");
 });
 
 test("Hub source forwards connector connection status events", async () => {
@@ -83,6 +127,37 @@ test("Hub runtime marks the trusted heat stale while the LiveTime stream reconne
   assert.equal(runtime.store.snapshot.schedule.currentRaceId, "race-2");
 });
 
+test("Hub runtime can start with persistence disabled", async () => {
+  const fetchImpl = async (url, { signal } = {}) => {
+    if (new URL(url).pathname.endsWith("/snapshot")) {
+      return { ok: true, async json() { return structuredClone(sourceSnapshot); } };
+    }
+    return {
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          signal?.addEventListener("abort", () => controller.close(), { once: true });
+        }
+      })
+    };
+  };
+  const runtime = new RaceHubRuntime({
+    statePath: null,
+    port: 0,
+    refreshMs: 60000,
+    sourceUrl: "https://example.livefpv.com/",
+    fetchImpl
+  });
+
+  await runtime.start();
+  try {
+    assert.ok(runtime.server.address());
+    assert.equal(runtime.store.persistencePath, null);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("Hub source URL acceptance normalizes LiveFPV URLs and rejects unsafe targets", () => {
   assert.equal(validateLiveFPVSourceUrl("https://example.livefpv.com/live/scoring/"), "https://example.livefpv.com/live/scoring/");
   assert.throws(() => validateLiveFPVSourceUrl("https://example.com/"), /LiveFPV organization/);
@@ -118,6 +193,56 @@ test("Hub retains the completed frontier when the source points back to an older
 
   const explicitRerun = adaptConnectorSnapshot(makeInput(8, "staging"));
   assert.equal(reconcileConnectorSnapshot(previous, explicitRerun).schedule.currentIndex, 8);
+});
+
+test("Hub does not regress a trusted completed heat while static results still mark it not-run", () => {
+  const makeInput = ({ currentIndex, statuses, revision }) => {
+    const input = structuredClone(sourceSnapshot);
+    input.snapshotId = `event-1:${revision}`;
+    input.capturedAt = `2026-09-10T18:30:${revision === "live-h2-complete" ? "10" : "20"}.000Z`;
+    input.races = statuses.map((status, index) => ({
+      id: `q2-h${index + 1}`,
+      order: index,
+      label: `Class (Heat ${index + 1}/3)`,
+      phase: "Qualifier",
+      round: "Qualifier Round 2",
+      status,
+      links: {},
+      pilots: []
+    }));
+    input.schedule = {
+      currentRaceId: `q2-h${currentIndex + 1}`,
+      currentIndex,
+      nextRaceIds: [],
+      afterNextRaceIds: []
+    };
+    return input;
+  };
+
+  const trustedLive = adaptConnectorSnapshot(makeInput({
+    currentIndex: 1,
+    statuses: ["complete", "complete", "not-run"],
+    revision: "live-h2-complete"
+  }));
+  const laggingStaticPoll = adaptConnectorSnapshot(makeInput({
+    currentIndex: 0,
+    statuses: ["complete", "not-run", "not-run"],
+    revision: "static-h1-only"
+  }));
+  laggingStaticPoll.races[1].pilots = [{
+    id: "pilot-result",
+    callsign: "Updated Result",
+    timing: { position: 1, laps: 4 }
+  }];
+
+  const reconciled = reconcileConnectorSnapshot(trustedLive, laggingStaticPoll);
+
+  assert.equal(reconciled.schedule.currentRaceId, "q2-h2");
+  assert.equal(reconciled.schedule.currentIndex, 1);
+  assert.equal(reconciled.races[1].status, "complete");
+  assert.equal(reconciled.races[1].pilots[0].callsign, "Updated Result");
+  assert.equal(reconciled.races[1].pilots[0].timing.position, 1);
+  assert.deepEqual(reconciled.schedule.nextRaceIds, ["q2-h3"]);
 });
 
 test("Hub keeps the last completed frontier when the source points at an unstarted next round", () => {

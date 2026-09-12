@@ -2,6 +2,25 @@ const PROTOCOL_VERSION = 1;
 const COMMAND_TIMEOUT_MS = 3000;
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
+function retryableError(message) {
+  const error = new Error(message);
+  error.retryable = true;
+  return error;
+}
+
+async function retryTransient(operation, { attempts = 3, canRetry = () => true } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { return await operation(); }
+    catch (error) {
+      lastError = error;
+      if (!error?.retryable || !canRetry() || attempt === attempts - 1) break;
+      await wait(150);
+    }
+  }
+  throw lastError;
+}
+
 function stableSerialize(value) {
   if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
   if (value && typeof value === "object") {
@@ -20,15 +39,15 @@ function publicationKey(schema, values, config) {
 
 function decodeFrameChunk(chunk, offset, expectedCount) {
   if (chunk?.offset !== offset || chunk?.count !== expectedCount) {
-    throw new Error(`Frame chunk ${offset} has mismatched coordinates.`);
+    throw retryableError(`Frame chunk ${offset} has mismatched coordinates.`);
   }
   const payload = chunk?.data;
   if (typeof payload !== "string" || payload.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload)) {
-    throw new Error(`Frame chunk ${offset} contains invalid base64 data.`);
+    throw retryableError(`Frame chunk ${offset} contains invalid base64 data.`);
   }
   const bytes = Uint8Array.from(atob(payload), character => character.charCodeAt(0));
   if (bytes.length !== expectedCount * 3) {
-    throw new Error(`Frame chunk ${offset} has an invalid byte count.`);
+    throw retryableError(`Frame chunk ${offset} has an invalid byte count.`);
   }
   return bytes;
 }
@@ -336,20 +355,17 @@ export class OutputSession {
     this.operationTask = task.catch(() => {});
     return task;
   }
-  async sendCommand(op, fields = {}, timeout = COMMAND_TIMEOUT_MS) {
+  async sendCommand(op, fields = {}, timeout = COMMAND_TIMEOUT_MS, { attempts = this.config.transport === "usb" ? 3 : 1 } = {}) {
     if (!this.ready()) throw new Error("Display is not connected.");
     const seq = ++this.sequence;
     const envelope = { fpv: { p: PROTOCOL_VERSION, sid: this.sessionId, seq, op, ...fields } };
     const serialized = JSON.stringify(envelope);
-    const attempts = this.config.transport === "usb" ? 3 : 1;
     let lastError;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const response = new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           this.waiters.delete(seq);
-          const error = new Error(`${op} timed out.`);
-          error.retryable = true;
-          reject(error);
+          reject(retryableError(`${op} timed out.`));
         }, timeout);
         this.waiters.set(seq, { resolve, reject, timer });
       });
@@ -414,7 +430,6 @@ export class OutputSession {
     if (plan[0] === "install-schema") await this.installSchemaNow(schema);
     const nextPublicationKey = publicationKey(schema, values, this.config);
     if (nextPublicationKey === this.lastSentPublicationKey) return;
-    if (plan[0] === "install-schema") await this.installSchemaNow(schema);
     await this.sendState(schema, values);
     this.lastSentPublicationKey = nextPublicationKey;
     this.setState({ connection: "connected", controlling: true, lastUpdateAt: Date.now(), schema: schema.schemaHash, message: `Live scene sent via ${this.config.transport === "usb" ? "USB" : "WLED WebSocket"}.` });
@@ -462,30 +477,16 @@ export class OutputSession {
     this.setState({ controlling: false });
   }
   async sendCaptureCommand(op, fields = {}, timeout = 5000, attempts = 3) {
-    let lastError;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try { return await this.sendCommand(op, fields, timeout); }
-      catch (error) {
-        lastError = error;
-        if (!this.ready() || attempt === attempts - 1) break;
-        await wait(150);
-      }
-    }
-    throw lastError;
+    return retryTransient(
+      () => this.sendCommand(op, fields, timeout, { attempts: 1 }),
+      { attempts, canRetry: () => this.ready() }
+    );
   }
   async readCaptureChunk(capture, offset, count, attempts = 3) {
-    let lastError;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      try {
-        const chunk = await this.sendCaptureCommand("frame.chunk", { capture, offset, count }, 7000);
-        return decodeFrameChunk(chunk, offset, count);
-      } catch (error) {
-        lastError = error;
-        if (!this.ready() || attempt === attempts - 1) break;
-        await wait(150);
-      }
-    }
-    throw lastError;
+    return retryTransient(async () => {
+      const chunk = await this.sendCommand("frame.chunk", { capture, offset, count }, 7000, { attempts: 1 });
+      return decodeFrameChunk(chunk, offset, count);
+    }, { attempts, canRetry: () => this.ready() });
   }
   readFrame(source = "output") {
     return this.queueOperation(() => this.readFrameNow(source));

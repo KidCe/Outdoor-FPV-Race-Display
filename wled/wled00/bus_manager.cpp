@@ -1242,7 +1242,7 @@ void BusHub75Matrix::show(void) {
     // frame. The driver owns two DMA frames; after one complete paint, flip to it.
     byte *dirty = _dmaBufferIndex ? _ledsDirtySecondary : _ledsDirty;
     bool hasDirtyPixels = false;
-    for (size_t index = 0; index < _len; index++) {
+    for (uint_fast16_t index = 0; index < _len; index++) {
       if (getBitFromArray(dirty, index)) {
         hasDirtyPixels = true;
         break;
@@ -1263,7 +1263,7 @@ void BusHub75Matrix::show(void) {
     unsigned height = _isVirtual ? virtualDisp->height() : display->height();
     unsigned width = _panelWidth;
 
-    size_t pix = 0; // running pixel index
+    uint_fast16_t pix = 0; // running pixel index
     for (int y=0; y<height; y++) for (int x=0; x<width; x++) {
       if (!_ledsDirtySecondary || getBitFromArray(dirty, pix)) {
         CRGB c = _ledBuffer[pix];
@@ -1281,7 +1281,7 @@ void BusHub75Matrix::show(void) {
     if (_ledsDirtySecondary) _dmaBufferIndex ^= 1;
     _frameDirty = false;
     byte *pending = _dmaBufferIndex ? _ledsDirtySecondary : _ledsDirty;
-    for (size_t index = 0; index < _len; index++) {
+    for (uint_fast16_t index = 0; index < _len; index++) {
       if (getBitFromArray(pending, index)) {
         _frameDirty = true;
         break;

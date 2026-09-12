@@ -57,6 +57,7 @@ test("live output omits legacy WLED background effects and installs a black sche
 
   const begin = operations.find(command => command.op === "schema.begin");
   assert.equal(begin.background, 0);
+  assert.equal(operations.filter(command => command.op === "schema.begin").length, 1);
   assert.equal(Object.hasOwn(session.config, "backgroundEffect"), false);
   assert.ok(operations.filter(command => command.op === "state").length > 0);
   assert.ok(operations.filter(command => command.op === "state").every(command => !Object.hasOwn(command, "backgroundEffect")));
